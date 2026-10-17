@@ -7,6 +7,51 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-18
+
+### 新增
+
+- **三层测试体系**（`tests/` 目录，workspace 成员 `cache-benchmark-tests`，约 100 个用例）
+  - 单元测试（`benchmark/`、`bench-ctl/`）：cores 解析、占位符生成与非法输入、
+    分布采样值域与偏斜性、SharedContext 并发发放精确性、ConnLimiter 阻塞/增长语义、
+    AutoConnection 锁定状态机、连接串与拓扑解析、hosts 解析、二进制架构匹配、
+    shell 转义、聚合数学（QPS 求和、直方图按桶合并重算分位数）
+  - 功能测试（`functional/`）：黑盒运行二进制——CLI 帮助/版本/参数校验、
+    `--json` 单行契约与字段齐全、`--start-at` 等待/立即启动、对内置 mock RESP
+    服务器完成计数/pipeline/load/Lua 全流程、连接失败的错误信息
+  - 集成测试（`integration/`，默认 `#[ignore]`，环境变量触发）：standalone
+    数据写入验证与 sequence 不重不漏、集群拓扑一致性 + pipeline 无 CrossSlot 回归 +
+    负载均匀性（各 master ops 偏差 <15%）、Lua 数据可验证、ctl 多机 distribute/run
+    与单机失败不阻塞
+  - 内置 mock RESP 服务器（`tests/src/mock_resp.rs`）：支持 +OK/PING/CLUSTER SLOTS
+    可配置拓扑，测试无需外部 Redis
+- **CI 增强**：push/PR 触发测试；test job 提供 redis service 容器并自动运行
+  standalone/Lua 集成测试
+- `cache-bench-ctl` 拆分 lib + bin，`report::aggregate` 提取为纯函数（可测试）
+
+### 修复（相对 resp-benchmark 的行为，均由新增测试发现）
+
+- **`{range N W}` 多值占位符参数粘连**：生成器把多 token 输出直接拼接到前一个词后
+  （如 `LRANGE k {range 100 10}` 产生 `k9699` 而非 `k 96 99`），现在以空格分隔
+- **SharedContext::fetch 并发超发**：原实现 `fetch_add` 后检查，多线程同时领取最后一个
+  名额会超发；改为 CAS 循环，并发下发放总量精确等于 max_count
+- **超短压测 QPS 显示为 0**：运行在一个统计周期（233ms）内结束时，最终 QPS 未计算即
+  退出；现在退出前补算最终值
+- **ConnLimiter::add_conn 无等待者时挂起**：连接目标提升后若无并发等待者注册连接，
+  函数无限等待；现在 100ms 超时返回（等待者稍后自行检查目标值）
+- **find_worker_binary 误匹配同名目录**：`dist/cache-benchmark-x86_64` 若是目录会被
+  当作二进制选中；现在只匹配普通文件
+
+### 变更
+
+- crates 目录重命名：`crates/cache-benchmark` → `crates/benchmark`、
+  `crates/cache-bench-ctl` → `crates/bench-ctl`（仅目录名，包名/二进制名/仓库名不变）
+- 测试脚本并入测试体系：移除 `scripts/smoke-test.sh` 与
+  `scripts/check-distribution.sh`（能力由 `tests/integration/` 覆盖），
+  `scripts/` 只保留构建脚本
+- zipfian 键域语义文档化：`rand_distr::Zipf` 采样区间为 [1, N] 含端点
+  （继承自 resp-benchmark，与 uniform 的 [0, N) 不同）
+
 ## [0.1.1] - 2026-10-17
 
 ### 修复
@@ -54,6 +99,7 @@
 - 3 主 3 从集群 + 1 standalone 环境完成冒烟测试：拓扑发现、灌数据、读压测、Lua、JSON 输出全部通过
 - 三机分布式压测：同步启动，聚合 QPS 236,959，p99 7.4ms；各 master `total_commands_processed` 增量偏差 <5%
 
-[Unreleased]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.1...HEAD
+[Unreleased]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.2...HEAD
+[0.1.2]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.1...v0.1.2
 [0.1.1]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.0...v0.1.1
 [0.1.0]: https://gitlab.gzky.com/dale.wang/cache-benchmark/releases/tag/v0.1.0

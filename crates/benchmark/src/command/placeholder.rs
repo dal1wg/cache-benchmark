@@ -4,7 +4,6 @@ use rand::distributions::Alphanumeric;
 use rand::prelude::*;
 use std::cmp::min;
 use std::process::exit;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
@@ -20,53 +19,59 @@ impl PlaceholderEnum {
     pub fn new_string(str: &str) -> Self {
         Self::String(PlaceholderString::new(str.to_string()))
     }
+    /// CLI semantics: invalid placeholders terminate the process.
     pub fn new(str: &str) -> Self {
+        match Self::try_new(str) {
+            Ok(p) => p,
+            Err(msg) => {
+                eprintln!("{}", msg);
+                exit(1);
+            }
+        }
+    }
+    /// Testable variant: returns an error message instead of exiting.
+    pub fn try_new(str: &str) -> Result<Self, String> {
         let s = str.to_string();
         let words: Vec<&str> = s.split_whitespace().collect();
-        if words.len() == 0 {
-            eprint!("placeholder is empty");
-            exit(1);
+        if words.is_empty() {
+            return Err("placeholder is empty".to_string());
         }
         let ph = match words[0] {
             "key" => {
                 if words.len() != 3 {
-                    eprint!("wrong number of arguments for key placeholder: {:?}", words);
-                    exit(1);
+                    return Err(format!("wrong number of arguments for key placeholder: {:?}", words));
                 }
-                let range = u64::from_str(words[2]).unwrap();
-                let distribution = DistributionEnum::new(words[1], range);
+                let range = words[2].parse::<u64>().map_err(|e| format!("invalid key range {:?}: {}", words[2], e))?;
+                let distribution = DistributionEnum::try_new(words[1], range)?;
                 PlaceholderEnum::Key(PlaceholderKey::new(distribution))
             }
             "value" => {
                 if words.len() != 2 {
-                    eprint!("wrong number of arguments for value placeholder: {:?}", words);
-                    exit(1);
+                    return Err(format!("wrong number of arguments for value placeholder: {:?}", words));
                 }
-                let size = u64::from_str(words[1]).unwrap();
+                let size = words[1].parse::<u64>().map_err(|e| format!("invalid value size {:?}: {}", words[1], e))?;
                 PlaceholderEnum::Value(PlaceholderValue::new(size))
             }
             "rand" => {
                 if words.len() != 2 {
-                    eprint!("wrong number of arguments for rand placeholder: {:?}", words);
-                    exit(1);
+                    return Err(format!("wrong number of arguments for rand placeholder: {:?}", words));
                 }
-                PlaceholderEnum::Rand(PlaceholderRand::new(u64::from_str(words[1]).unwrap()))
+                let range = words[1].parse::<u64>().map_err(|e| format!("invalid rand range {:?}: {}", words[1], e))?;
+                PlaceholderEnum::Rand(PlaceholderRand::new(range))
             }
             "range" => {
                 if words.len() != 3 {
-                    eprint!("wrong number of arguments for range placeholder: {:?}", words);
-                    exit(1);
+                    return Err(format!("wrong number of arguments for range placeholder: {:?}", words));
                 }
-                let range = u64::from_str(words[1]).unwrap();
-                let width = u64::from_str(words[2]).unwrap();
+                let range = words[1].parse::<u64>().map_err(|e| format!("invalid range N {:?}: {}", words[1], e))?;
+                let width = words[2].parse::<u64>().map_err(|e| format!("invalid width W {:?}: {}", words[2], e))?;
                 PlaceholderEnum::Range(PlaceholderRange::new(range, width))
             }
             name => {
-                eprint!("Invalid placeholder: {}", name);
-                exit(1);
+                return Err(format!("Invalid placeholder: {}", name));
             }
         };
-        ph
+        Ok(ph)
     }
     pub fn generate(&mut self) -> Vec<String> {
         match self {
@@ -167,20 +172,27 @@ pub struct PlaceholderGenerator {
 }
 
 impl PlaceholderGenerator {
+    /// CLI semantics: panics on parse error.
     pub fn new(cmd: &str) -> PlaceholderGenerator {
-        let prev_cmd = cmd;
+        match Self::try_new(cmd) {
+            Ok(g) => g,
+            Err(e) => panic!("cmd parse error. cmd: {}, error: {}", cmd, e),
+        }
+    }
+    /// Testable variant: returns a Result.
+    pub fn try_new(cmd: &str) -> Result<PlaceholderGenerator, String> {
         match parser::parse_all(cmd) {
             Ok((nm, args)) => {
-                assert_eq!(nm, "");
-                PlaceholderGenerator {
-                    str: prev_cmd.to_string(),
+                if !nm.is_empty() {
+                    return Err(format!("trailing input: {:?}", nm));
+                }
+                Ok(PlaceholderGenerator {
+                    str: cmd.to_string(),
                     argv: args,
                     lock: Arc::new(Mutex::new(())),
-                }
+                })
             }
-            Err(e) => {
-                panic!("cmd parse error. cmd: {}, error: {:?}", cmd, e);
-            }
+            Err(e) => Err(format!("{:?}", e)),
         }
     }
 }
@@ -191,6 +203,11 @@ impl CommandGenerator for PlaceholderGenerator {
         let mut cmd_str = String::new();
         for ph in self.argv.iter_mut() {
             for arg in ph.generate() {
+                if !cmd_str.is_empty() && !cmd_str.ends_with(char::is_whitespace) {
+                    // separate multi-token placeholders ({range N W} yields two
+                    // numbers) and placeholder/literal boundaries with a space
+                    cmd_str.push(' ');
+                }
                 cmd_str.push_str(&arg);
             }
         }
@@ -206,6 +223,9 @@ impl CommandGenerator for PlaceholderGenerator {
         let mut cmd_str = String::new();
         for ph in self.argv.iter_mut() {
             for arg in ph.generate() {
+                if !cmd_str.is_empty() && !cmd_str.ends_with(char::is_whitespace) {
+                    cmd_str.push(' ');
+                }
                 cmd_str.push_str(&arg);
             }
         }

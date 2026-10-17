@@ -49,12 +49,19 @@ impl ConnLimiter {
             return;
         }
         self.target_conn.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // Wake waiters and give them a moment to register their connections,
+        // but never block forever: when no waiter is parked (e.g. the caller
+        // raises the target before workers start), return immediately.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(100);
         loop {
             self.notify_add.notify_one();
             let active_conn = self.active_conn.load(std::sync::atomic::Ordering::SeqCst);
             let target_conn = self.target_conn.load(std::sync::atomic::Ordering::SeqCst);
             if active_conn >= target_conn {
                 return;
+            }
+            if std::time::Instant::now() >= deadline {
+                return; // waiters will pick up the raised target on their next check
             }
             std::thread::sleep(std::time::Duration::from_millis(1));
         }

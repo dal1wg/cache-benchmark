@@ -1,11 +1,12 @@
 use crate::hosts::Host;
+use crate::WorkerResult;
 use anyhow::Result;
 use cb_histogram::HistogramData;
 use colored::Colorize;
 use serde::Serialize;
 
 /// Per-host entry in the aggregate report.
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct HostReport {
     pub host: String,
     pub ok: bool,
@@ -22,7 +23,7 @@ pub struct HostReport {
 }
 
 /// Aggregate report: sum of per-host QPS + bucket-wise merged latency histogram.
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct AggregateReport {
     pub total_qps: f64,
     pub avg_latency_ms: f64,
@@ -30,15 +31,15 @@ pub struct AggregateReport {
     pub p95_latency_ms: f64,
     pub p99_latency_ms: f64,
     pub total_count: u64,
+    pub ok_count: usize,
     pub hosts: Vec<HostReport>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cluster_nodes: Vec<String>,
 }
 
-pub(crate) fn print_report(
-    results: &[(Host, anyhow::Result<crate::WorkerResult>)],
-    output_file: &Option<String>,
-) -> Result<()> {
+/// Pure aggregation over per-host results: QPS sum, bucket-wise merged
+/// histogram percentiles, failed-host marking. No I/O — testable.
+pub fn aggregate(results: &[(Host, anyhow::Result<WorkerResult>)]) -> AggregateReport {
     let mut hosts: Vec<HostReport> = Vec::new();
     let mut merged = HistogramData::empty();
     let mut total_qps = 0.0f64;
@@ -97,16 +98,25 @@ pub(crate) fn print_report(
         weighted_avg_ms /= total_count as f64;
     }
 
-    let report = AggregateReport {
+    AggregateReport {
         total_qps,
         avg_latency_ms: weighted_avg_ms,
         p50_latency_ms: merged.percentile_us(0.50) as f64 / 1_000.0,
         p95_latency_ms: merged.percentile_us(0.95) as f64 / 1_000.0,
         p99_latency_ms: merged.percentile_us(0.99) as f64 / 1_000.0,
         total_count,
+        ok_count: ok_cnt,
         hosts,
         cluster_nodes,
-    };
+    }
+}
+
+/// Aggregate + print a human-readable table; optionally write JSON to file.
+pub fn print_report(
+    results: &[(Host, anyhow::Result<WorkerResult>)],
+    output_file: &Option<String>,
+) -> Result<()> {
+    let report = aggregate(results);
 
     println!("\n{}", "================ Aggregate Report ================".bold());
     println!("{:<20} {:>10} {:>10} {:>10} {:>10}", "host", "qps", "avg", "p99", "count");
@@ -123,7 +133,7 @@ pub(crate) fn print_report(
     println!("{}", "--------------------------------------------------".bold());
     println!(
         "{:<20} {:>10.0} {:>8.2}ms {:>8.2}ms {:>10}",
-        format!("TOTAL ({} ok)", ok_cnt).green(), report.total_qps, report.avg_latency_ms, report.p99_latency_ms, report.total_count
+        format!("TOTAL ({} ok)", report.ok_count).green(), report.total_qps, report.avg_latency_ms, report.p99_latency_ms, report.total_count
     );
     if !report.cluster_nodes.is_empty() {
         println!("cluster masters: {}", report.cluster_nodes.join(", "));

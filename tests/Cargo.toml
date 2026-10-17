@@ -1,0 +1,97 @@
+[package]
+name = "cache-benchmark-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Unit / functional / integration tests for cache-benchmark and cache-bench-ctl"
+publish = false
+
+[lib]
+name = "cache_benchmark_tests"
+path = "src/lib.rs"
+
+[dependencies]
+cache-benchmark = { path = "../crates/benchmark" }
+cache-bench-ctl = { path = "../crates/bench-ctl" }
+cb-histogram = { path = "../crates/cb-histogram" }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+redis = { workspace = true }
+rand = { workspace = true }
+
+[[test]]
+name = "benchmark_cli"
+path = "benchmark/cli.rs"
+
+[[test]]
+name = "benchmark_command"
+path = "benchmark/command.rs"
+
+[[test]]
+name = "benchmark_distribution"
+path = "benchmark/distribution.rs"
+
+[[test]]
+name = "benchmark_shared_context"
+path = "benchmark/shared_context.rs"
+
+[[test]]
+name = "benchmark_auto_connection"
+path = "benchmark/auto_connection.rs"
+
+[[test]]
+name = "benchmark_client"
+path = "benchmark/client.rs"
+
+[[test]]
+name = "benchmark_e2e_mock"
+path = "benchmark/e2e_mock.rs"
+
+[[test]]
+name = "ctl_hosts"
+path = "bench-ctl/hosts.rs"
+
+[[test]]
+name = "ctl_dist"
+path = "bench-ctl/dist.rs"
+
+[[test]]
+name = "ctl_report"
+path = "bench-ctl/report.rs"
+
+[[test]]
+name = "functional_worker_cli"
+path = "functional/worker_cli.rs"
+
+[[test]]
+name = "functional_worker_json"
+path = "functional/worker_json.rs"
+
+[[test]]
+name = "functional_worker_start_at"
+path = "functional/worker_start_at.rs"
+
+[[test]]
+name = "functional_worker_run"
+path = "functional/worker_run.rs"
+
+[[test]]
+name = "functional_ctl_cli"
+path = "functional/ctl_cli.rs"
+
+[[test]]
+name = "integration_standalone"
+path = "integration/standalone.rs"
+
+[[test]]
+name = "integration_cluster"
+path = "integration/cluster.rs"
+
+[[test]]
+name = "integration_lua_real"
+path = "integration/lua_real.rs"
+
+[[test]]
+name = "integration_distributed_run"
+path = "integration/distributed_run.rs"

@@ -130,7 +130,16 @@ fn wait_finish(case: &Case, mut auto_connection: AutoConnection, mut context: Sh
         loop {
             select! {
                 _ = interval.tick() => {}
-                _ = wg.wait() => {break;}
+                _ = wg.wait() => {
+                    // final stats update before exiting: very short runs may
+                    // finish within a single interval tick and would otherwise
+                    // report qps = 0
+                    if auto_connection.ready {
+                        let cnt = histogram.cnt();
+                        result.qps = (cnt - overall_cnt_overhead) as f64 / overall_time.elapsed().as_secs_f64();
+                    }
+                    break;
+                }
             }
             {
                 let cnt = histogram.cnt();

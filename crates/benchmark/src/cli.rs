@@ -1,52 +1,7 @@
-use cache_benchmark::{make_generator, run_benchmark, Case};
+use cache_benchmark::{make_generator, parse_cores, run_benchmark, Case};
 use clap::{Arg, ArgAction, Command};
 use colored::Colorize;
-use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-fn parse_cores(cores: &str) -> Vec<u16> {
-    // supports "0,1,2" and "0-3,7" (same semantics as resp-benchmark --cores)
-    let mut result = Vec::new();
-    for part in cores.split(',') {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-        let range: Vec<&str> = part.split('-').collect();
-        match range.len() {
-            1 => {
-                result.push(u16::from_str(range[0]).unwrap_or_else(|e| {
-                    eprintln!("Invalid cores range: {}: {}", cores, e);
-                    std::process::exit(1);
-                }));
-            }
-            2 => {
-                let start = u16::from_str(range[0]).unwrap_or_else(|e| {
-                    eprintln!("Invalid cores range: {}: {}", cores, e);
-                    std::process::exit(1);
-                });
-                let end = u16::from_str(range[1]).unwrap_or_else(|e| {
-                    eprintln!("Invalid cores range: {}: {}", cores, e);
-                    std::process::exit(1);
-                });
-                for c in start..=end {
-                    result.push(c);
-                }
-            }
-            _ => {
-                eprintln!("Invalid cores range: {}", cores);
-                std::process::exit(1);
-            }
-        }
-    }
-    result.sort();
-    result.dedup();
-    if result.is_empty() {
-        eprintln!("Invalid cores range: {}", cores);
-        std::process::exit(1);
-    }
-    result
-}
 
 fn default_cores() -> String {
     // all logical cores: "0-N"

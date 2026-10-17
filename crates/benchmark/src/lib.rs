@@ -3,16 +3,65 @@
 //! bindings removed).
 
 mod async_flag;
-mod auto_connection;
+pub mod auto_connection;
 mod bench;
 pub mod client;
-mod command;
-mod shared_context;
+pub mod command;
+pub mod shared_context;
 
 use crate::command::{LuaGenerator, PlaceholderGenerator};
 use cb_histogram::HistogramData;
 use ctrlc;
 use serde::{Deserialize, Serialize};
+
+/// Parse a cores specification: "0,1,2" or "0-3,7" (mixed ranges and single
+/// cores). Result is sorted and deduplicated. Exits the process on invalid
+/// input (CLI semantics); tests use `parse_cores_checked` instead.
+pub fn parse_cores(cores: &str) -> Vec<u16> {
+    match parse_cores_checked(cores) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Invalid cores range: {}: {}", cores, e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Pure variant of [`parse_cores`] returning a Result (testable).
+pub fn parse_cores_checked(cores: &str) -> anyhow::Result<Vec<u16>> {
+    let mut result = Vec::new();
+    for part in cores.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let range: Vec<&str> = part.split('-').collect();
+        match range.len() {
+            1 => {
+                let c = range[0].parse::<u16>().map_err(|e| anyhow::anyhow!("{}", e))?;
+                result.push(c);
+            }
+            2 => {
+                let start = range[0].parse::<u16>().map_err(|e| anyhow::anyhow!("{}", e))?;
+                let end = range[1].parse::<u16>().map_err(|e| anyhow::anyhow!("{}", e))?;
+                if end < start {
+                    anyhow::bail!("descending range {}-{}", start, end);
+                }
+                for c in start..=end {
+                    result.push(c);
+                }
+            }
+            _ => anyhow::bail!("invalid range part {:?}", part),
+        }
+    }
+    result.sort();
+    result.dedup();
+    if result.is_empty() {
+        anyhow::bail!("no cores specified");
+    }
+    Ok(result)
+}
+
 
 /// Everything needed to run one benchmark case.
 pub struct Case {

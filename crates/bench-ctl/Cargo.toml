@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 description = "Management tool: distribute cache-benchmark to multiple servers, run them simultaneously, and collect results"
 
+[lib]
+name = "cache_bench_ctl"
+path = "src/lib.rs"
+
 [[bin]]
 name = "cache-bench-ctl"
 path = "src/main.rs"

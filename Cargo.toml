@@ -2,12 +2,13 @@
 resolver = "2"
 members = [
     "crates/cb-histogram",
-    "crates/cache-benchmark",
-    "crates/cache-bench-ctl",
+    "crates/benchmark",
+    "crates/bench-ctl",
+    "tests",
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT"
 

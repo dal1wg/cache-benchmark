@@ -1,6 +1,5 @@
 use crate::async_flag::AsyncFlag;
 use cb_histogram::Histogram;
-use std::cmp::min;
 use std::option::Option;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
@@ -68,11 +67,27 @@ impl SharedContext {
     pub fn fetch(&self, count: u64) -> u64 {
         let mut result = count;
         if self.max_count != 0 {
-            let prev_count = self.current_count.fetch_add(count, std::sync::atomic::Ordering::Relaxed);
-            if prev_count >= self.max_count {
-                return 0;
+            // atomic claim: loop until we secure min(count, remaining) without
+            // over-issuing under concurrency (fetch_add-then-check races)
+            loop {
+                let current = self.current_count.load(std::sync::atomic::Ordering::Relaxed);
+                if current >= self.max_count {
+                    return 0;
+                }
+                let want = count.min(self.max_count - current);
+                match self.current_count.compare_exchange(
+                    current,
+                    current + want,
+                    std::sync::atomic::Ordering::Relaxed,
+                    std::sync::atomic::Ordering::Relaxed,
+                ) {
+                    Ok(_) => {
+                        result = want;
+                        break;
+                    }
+                    Err(_) => continue, // another thread claimed; retry
+                }
             }
-            result = min(self.max_count - prev_count, count);
         }
 
         if self.max_seconds != 0 && self.instant.read().unwrap().is_some() {

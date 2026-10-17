@@ -2,8 +2,12 @@ name: CI
 
 on:
   push:
+    branches:
+      - master
+      - main
     tags:
       - '*'
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -68,8 +72,20 @@ jobs:
           path: dist
 
   test:
-    name: Test
+    name: Test (unit + functional + standalone-integration)
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      REDIS_HOST: 127.0.0.1:6379
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust toolchain
@@ -80,8 +96,14 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: tests
-      - name: Run tests
+      - name: Build binaries (functional tests spawn them)
+        run: cargo build -p cache-benchmark -p cache-bench-ctl
+      - name: Unit + functional tests
         run: cargo test --workspace
+      - name: Standalone integration tests (redis service)
+        run: cargo test -p cache-benchmark-tests --test integration_standalone --test integration_lua_real -- --ignored
+        env:
+          REDIS_HOST: 127.0.0.1:6379
 
   release:
     name: Release

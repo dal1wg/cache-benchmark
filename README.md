@@ -183,12 +183,24 @@ cache-bench-ctl --transport russh run ...  # 纯 Rust 实现（需 --features ru
 ## 开发
 
 ```bash
-cargo test --workspace                    # 运行单元测试
-./scripts/build.sh                        # 构建 musl 静态二进制并打包（在 WSL/Linux 中）
-./scripts/build.sh aarch64                # aarch64 musl 交叉编译
-./scripts/smoke-test.sh                   # 冒烟测试（BIN/HOST/PORT 可用环境变量覆盖）
-./scripts/check-distribution.sh           # 检查集群各 master 负载分布均匀性
+cargo test --workspace          # 单元测试 + 功能测试（无需外部环境）
+
+# 集成测试（默认跳过，通过环境变量指定目标后手动运行）
+REDIS_HOST=192.168.102.34:6379 cargo test -p cache-benchmark-tests --test integration_standalone -- --ignored
+CLUSTER_SEED=192.168.102.34:16385 cargo test -p cache-benchmark-tests --test integration_cluster -- --ignored
+CTL_HOSTS_FILE=hosts.toml cargo test -p cache-benchmark-tests --test integration_distributed_run -- --ignored
+
+./scripts/build.sh              # 构建 musl 静态二进制并打包（在 WSL/Linux 中）
+./scripts/build.sh aarch64      # aarch64 musl 交叉编译
 ```
+
+测试体系分三层（位于 `tests/`）：
+
+| 层 | 目录 | 说明 |
+|---|---|---|
+| 单元测试 | `tests/benchmark/`、`tests/bench-ctl/` | 内部函数级：占位符生成、分布采样、并发限额、聚合数学等 |
+| 功能测试 | `tests/functional/` | 黑盒运行二进制：CLI 行为、`--json` 契约、`--start-at`、真实压测流程（对内置 mock RESP 服务器） |
+| 集成测试 | `tests/integration/` | 真实环境：standalone/集群拓扑与负载均匀性/Lua 数据验证/ctl 多机编排，未设置环境变量自动跳过 |
 
 ## Changelog
 

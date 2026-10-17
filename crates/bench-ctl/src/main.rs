@@ -1,74 +1,9 @@
-use crate::hosts::{Host, load_hosts};
-use crate::transport::{Transport, build_transport};
+use cache_bench_ctl::{WorkerResult, hosts::{Host, load_hosts}, report::print_report, shell_escape, transport::{Transport, build_transport}};
 use anyhow::{Result, anyhow, bail};
-use cb_histogram::HistogramData;
 use clap::{Arg, ArgAction, Command};
 use colored::Colorize;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-mod hosts;
-mod report;
-#[cfg(feature = "russh")]
-mod russh_transport;
-mod transport;
-
-/// Worker JSON result (subset of cache_benchmark::BenchResult that we need;
-/// kept separate so ctl does not depend on the worker crate).
-#[derive(Debug, Clone, serde::Deserialize)]
-pub(crate) struct WorkerResult {
-    pub qps: f64,
-    pub avg_latency_ms: f64,
-    pub p99_latency_ms: f64,
-    pub connections: u64,
-    pub count: u64,
-    #[allow(dead_code)]
-    elapsed_secs: f64,
-    #[serde(default)]
-    histogram: Option<HistogramData>,
-    #[serde(default)]
-    cluster_nodes: Vec<String>,
-}
-
-/// Normalize `uname -m` architecture names.
-fn normalize_arch(arch: &str) -> Option<&'static str> {
-    match arch.trim() {
-        "x86_64" | "amd64" => Some("x86_64"),
-        "aarch64" | "arm64" => Some("aarch64"),
-        _ => None,
-    }
-}
-
-/// Pick the worker binary matching the host architecture.
-/// Preferred layout: bin_dir/cache-benchmark-<arch> (e.g. cache-benchmark-x86_64).
-/// Legacy names with a full target triple (e.g. cache-benchmark-x86_64-unknown-linux-musl)
-/// are still accepted.
-fn find_worker_binary(bin_dir: &Path, arch: &str) -> Result<PathBuf> {
-    let arch = normalize_arch(arch).ok_or_else(|| anyhow!("unsupported remote architecture: {}", arch))?;
-    let prefix = format!("cache-benchmark-{}", arch);
-
-    // exact short name wins: cache-benchmark-x86_64
-    let exact = bin_dir.join(&prefix);
-    if exact.is_file() {
-        return Ok(exact);
-    }
-
-    // otherwise any suffixed variant (legacy triple names etc.)
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(bin_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with(&prefix) {
-                candidates.push(entry.path());
-            }
-        }
-    }
-    candidates.sort();
-    candidates
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("no worker binary for arch {} found in {:?} (expected e.g. cache-benchmark-{})", arch, bin_dir, arch))
-}
 
 async fn detect_arch(transport: &Transport, host: &Host) -> Result<String> {
     if !host.arch.is_empty() {
@@ -93,7 +28,7 @@ async fn distribute(transport: &Transport, hosts: &[Host], bin_dir: &Path, worke
             let arch = detect_arch(&transport, &host).await?;
             let binary = match &worker {
                 Some(w) => w.clone(),
-                None => find_worker_binary(&bin_dir, &arch)?,
+                None => cache_bench_ctl::find_worker_binary(&bin_dir, &arch)?,
             };
             transport.exec(&host, &format!("mkdir -p {}", shell_escape(&host.remote_dir))).await?;
             let remote_path = format!("{}/cache-benchmark", host.remote_dir);
@@ -121,12 +56,8 @@ fn transport_ref(t: &Transport) -> Transport {
     match t {
         Transport::System => Transport::System,
         #[cfg(feature = "russh")]
-        Transport::Russh(r) => Transport::Russh(crate::russh_transport::RusshTransport { key_path: r.key_path.clone() }),
+        Transport::Russh(r) => Transport::Russh(cache_bench_ctl::russh_transport::RusshTransport { key_path: r.key_path.clone() }),
     }
-}
-
-fn shell_escape(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 struct RunArgs {
@@ -169,7 +100,7 @@ async fn run(args: RunArgs) -> Result<()> {
         results.push((host.clone(), job.await.unwrap()));
     }
 
-    report::print_report(&results, &args.output)?;
+    print_report(&results, &args.output)?;
     Ok(())
 }
 
@@ -211,7 +142,7 @@ fn main() -> Result<()> {
         .about("Distribute cache-benchmark to multiple servers, run them simultaneously, and collect results")
         .disable_help_subcommand(true)
         .arg(Arg::new("hosts").long("hosts").value_name("FILE").default_value("hosts.toml").global(true).help("Path to the hosts.toml file"))
-        .arg(Arg::new("transport").long("transport").value_name("NAME").default_value("ssh").global(true).help("Transport: ssh (system ssh/scp) or russh (pure Rust)"))
+        .arg(Arg::new("transport").long("transport").value_name("NAME").default_value("ssh").global(true).help("Transport: ssh (system ssh/scp) or russh (pure Rust SSH)"))
         .arg(Arg::new("key").long("key").value_name("PATH").global(true).help("Private key path (russh transport only)"))
         .arg(Arg::new("bin-dir").long("bin-dir").value_name("DIR").default_value("dist").global(true).help("Local directory containing worker binaries named cache-benchmark-<arch> (e.g. cache-benchmark-x86_64)"))
         .arg(Arg::new("binary").long("binary").value_name("FILE").global(true).help("Explicit worker binary path (overrides arch detection)"))

@@ -249,7 +249,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cache-bench-ctl"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "cb-histogram",
@@ -265,8 +265,9 @@ dependencies = [
 
 [[package]]
 name = "cache-benchmark"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
+ "anyhow",
  "awaitgroup",
  "cb-histogram",
  "clap",
@@ -288,8 +289,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cache-benchmark-tests"
+version = "0.1.2"
+dependencies = [
+ "anyhow",
+ "cache-bench-ctl",
+ "cache-benchmark",
+ "cb-histogram",
+ "rand 0.8.8",
+ "redis",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cb-histogram"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
 ]
