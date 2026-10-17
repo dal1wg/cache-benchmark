@@ -1,0 +1,34 @@
+[package]
+name = "cache-benchmark"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A high-performance benchmark tool for Redis, Valkey, Tair and any RESP-compatible database"
+
+[[bin]]
+name = "cache-benchmark"
+path = "src/main.rs"
+
+[lib]
+name = "cache_benchmark"
+path = "src/lib.rs"
+
+[dependencies]
+cb-histogram = { workspace = true }
+tokio = { workspace = true }
+redis = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+nom = { workspace = true }
+core_affinity = { workspace = true }
+awaitgroup = { workspace = true }
+colored = { workspace = true }
+enum_delegate = { workspace = true }
+ctrlc = { workspace = true }
+urlencoding = { workspace = true }
+governor = { workspace = true }
+mlua = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }

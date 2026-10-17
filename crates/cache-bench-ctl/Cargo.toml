@@ -1,0 +1,27 @@
+[package]
+name = "cache-bench-ctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Management tool: distribute cache-benchmark to multiple servers, run them simultaneously, and collect results"
+
+[[bin]]
+name = "cache-bench-ctl"
+path = "src/main.rs"
+
+[features]
+default = []
+# Pure Rust SSH transport (no external ssh/scp binaries needed)
+russh = ["dep:russh", "dep:russh-sftp"]
+
+[dependencies]
+cb-histogram = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+toml = { workspace = true }
+colored = { workspace = true }
+russh = { version = "0.63", default-features = false, features = ["ring", "flate2", "rsa"], optional = true }
+russh-sftp = { version = "2", optional = true }

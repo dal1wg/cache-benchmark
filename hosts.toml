@@ -1,0 +1,44 @@
+# ============================================================
+# cache-bench-ctl 压测机清单（模板）
+# ------------------------------------------------------------
+# 每条 [[hosts]] 定义一台压测机，按需增删、可重复多条。
+#
+# 字段说明：
+#   address     必填。压测机 IP 或主机名
+#   port        可选。ssh 端口，默认 22
+#   user        可选。ssh 用户，默认 root
+#   arch        可选。覆盖架构自动探测（x86_64 / aarch64），
+#               默认通过远端 `uname -m` 探测
+#   remote_dir  可选。worker 二进制在远端的存放目录，
+#               默认 /tmp/cache-benchmark
+#   password    可选。ssh 密码。配置后：
+#               - 系统 ssh 通道：自动通过 sshpass 使用密码登录
+#                 （需管理机安装 sshpass：apt/yum install sshpass）
+#               - --transport russh：原生支持，无需 sshpass
+#               未配置时使用密钥 / ssh-agent / ~/.ssh/config。
+#
+# 使用步骤：
+#   1. 按实际环境修改下方 address（示例为测试环境）
+#   2. 确保管理机到各压测机已配置 SSH 免密：
+#        ssh-copy-id root@<address>
+#   3. 分发 worker 二进制：
+#        cache-bench-ctl --hosts hosts.toml --bin-dir dist distribute
+#   4. 同时压测并收敛结果：
+#        cache-bench-ctl --hosts hosts.toml run --skip-distribute -- \
+#            -h <目标地址> -p <端口> -c 64 -P 16 -s 30 "GET {key uniform 100000}"
+# ============================================================
+
+[[hosts]]
+address = "10.0.0.1"
+port = 22
+user = "root"
+remote_dir = "/tmp/cache-benchmark/"
+
+
+# 追加更多压测机时按同样格式编写（取消注释并修改地址）：
+#
+# [[hosts]]
+# address = "10.0.0.2"
+# port = 22
+# user = "root"
+# remote_dir = "/tmp/cache-benchmark"

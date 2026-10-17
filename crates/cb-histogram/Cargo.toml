@@ -1,0 +1,9 @@
+[package]
+name = "cb-histogram"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared latency histogram for cache-benchmark and cache-bench-ctl"
+
+[dependencies]
+serde = { workspace = true }
