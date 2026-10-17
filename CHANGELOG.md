@@ -7,6 +7,18 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-17
+
+### 修复
+
+- **CI aarch64 musl 交叉编译失败**（`mlua-sys` 报 `failed to find tool "aarch64-linux-musl-gcc"`）：
+  用 `taiki-e/setup-cross-toolchain-action` 替代 `musl-tools`，自动安装各 target 的交叉
+  C 工具链（aarch64-linux-musl-gcc 等，mlua vendored Lua 构建必需）并设置
+  `CC_*` / `CARGO_TARGET_*_LINKER` 环境变量
+- **CI macOS x86_64 交叉编译**：同一 action 覆盖 ARM runner 上构建 `x86_64-apple-darwin`
+  的场景（clang `-arch x86_64`）
+- **CI Windows 打包失败**：Package 步骤为 Windows 目标追加 `.exe` 后缀
+
 ## [0.1.0] - 2026-10-17
 
 ### 新增
@@ -42,5 +54,6 @@
 - 3 主 3 从集群 + 1 standalone 环境完成冒烟测试：拓扑发现、灌数据、读压测、Lua、JSON 输出全部通过
 - 三机分布式压测：同步启动，聚合 QPS 236,959，p99 7.4ms；各 master `total_commands_processed` 增量偏差 <5%
 
-[Unreleased]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.0...HEAD
+[Unreleased]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.1...HEAD
+[0.1.1]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.0...v0.1.1
 [0.1.0]: https://gitlab.gzky.com/dale.wang/cache-benchmark/releases/tag/v0.1.0
