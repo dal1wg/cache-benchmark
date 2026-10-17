@@ -39,8 +39,15 @@ fn load_writes_verifiable_data() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mut conn = rt.block_on(async { redis_client(&host, port).get_multiplexed_async_connection().await.unwrap() });
 
+    // unique key namespace so parallel tests (sequence_keys_no_gaps writes the
+    // plain key_ range with a different value size) cannot interfere
+    let prefix = format!("cbload:{}:", std::process::id());
+    let script = format!(
+        "local seq = bench.key(200, 'sequence', '{}'); local v = bench.value(16); function generate() return {{'SET', '{}' .. seq(), v()}} end",
+        prefix, prefix
+    );
     let case = cache_benchmark::Case {
-        command: cache_benchmark::make_generator("SET {key sequence 200} {value 16}", false),
+        command: cache_benchmark::make_generator(&script, true),
         connections: 2,
         count: 200,
         target: 0,
@@ -52,8 +59,8 @@ fn load_writes_verifiable_data() {
     assert_eq!(result.count, 200);
 
     // verify with an independent connection: every key exists with a 16-byte value
-    let checks: Vec<String> = (0..200u64).map(|i| format!("key_{:010}", i)).collect();
-    for key in &checks {
+    let keys: Vec<String> = (0..200u64).map(|i| format!("{}{}", prefix, i)).collect();
+    for key in &keys {
         let v: Option<String> = rt.block_on(async {
             redis::cmd("GET").arg(key).query_async(&mut conn).await.unwrap()
         });
@@ -61,7 +68,7 @@ fn load_writes_verifiable_data() {
     }
 
     // cleanup
-    let _: u64 = rt.block_on(async { redis::cmd("DEL").arg(&checks).query_async(&mut conn).await.unwrap() });
+    let _: u64 = rt.block_on(async { redis::cmd("DEL").arg(&keys).query_async(&mut conn).await.unwrap() });
 }
 
 #[test]
