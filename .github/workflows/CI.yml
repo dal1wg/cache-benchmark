@@ -21,19 +21,14 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            artifact_prefix: cache-benchmark
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-            artifact_prefix: cache-benchmark
           - target: x86_64-apple-darwin
             os: macos-latest
-            artifact_prefix: cache-benchmark
           - target: aarch64-apple-darwin
             os: macos-latest
-            artifact_prefix: cache-benchmark
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            artifact_prefix: cache-benchmark
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust toolchain
@@ -41,11 +36,14 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
-      - name: Install musl tools
-        if: contains(matrix.target, 'musl')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
+      # 安装交叉编译工具链（CC/linker 等），覆盖：
+      # - x86_64/aarch64 musl（musl-gcc / aarch64-linux-musl-gcc，mlua vendored Lua 必需）
+      # - macOS x86_64（ARM runner 上交叉编译，clang -arch x86_64）
+      - name: Setup cross toolchain
+        if: runner.os != 'Windows'
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -59,12 +57,14 @@ jobs:
         run: |
           mkdir -p dist
           TRIPLE=${{ matrix.target }}
-          cp target/$TRIPLE/release/cache-benchmark dist/cache-benchmark-$TRIPLE
-          cp target/$TRIPLE/release/cache-bench-ctl dist/cache-bench-ctl-$TRIPLE
+          EXT=""
+          if [[ "$TRIPLE" == *windows* ]]; then EXT=".exe"; fi
+          cp "target/$TRIPLE/release/cache-benchmark$EXT" "dist/cache-benchmark-$TRIPLE$EXT"
+          cp "target/$TRIPLE/release/cache-bench-ctl$EXT" "dist/cache-bench-ctl-$TRIPLE$EXT"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_prefix }}-${{ matrix.target }}
+          name: cache-benchmark-${{ matrix.target }}
           path: dist
 
   test:
