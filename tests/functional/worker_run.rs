@@ -21,7 +21,11 @@ fn count_run_against_mock() {
     assert_eq!(code, Some(0), "out: {}", out);
     let v: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
     assert_eq!(v["count"].as_u64(), Some(800));
-    assert!(v["qps"].as_f64().unwrap() > 0.0);
+    // qps is a timing-dependent value: a sub-100ms run can finish before the
+    // first 233ms stats tick, so only require a finite, non-negative value.
+    // (Positive throughput is covered by the real-Redis integration tests.)
+    let qps = v["qps"].as_f64().unwrap();
+    assert!(qps.is_finite() && qps >= 0.0, "qps: {}", qps);
 }
 
 #[test]

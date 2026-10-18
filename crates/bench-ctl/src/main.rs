@@ -129,7 +129,31 @@ async fn run_on_host(transport: &Transport, host: &Host, worker_args: &[String],
     if !output.success {
         bail!("worker on {} exited with failure: {}", host.address, output.stderr.trim());
     }
-    let line = json_line.ok_or_else(|| anyhow!("no JSON result line received from {}", host.address))?;
+    // fallback: scan the final output in case a line was not surfaced by the
+    // streaming reader (e.g. transport-specific chunking)
+    let line = json_line
+        .or_else(|| {
+            output
+                .stdout
+                .lines()
+                .rev()
+                .map(str::trim)
+                .find(|l| l.starts_with('{') && l.contains("\"qps\""))
+                .map(str::to_string)
+        })
+        .ok_or_else(|| {
+            let mut snippet = output.stdout.trim().to_string();
+            if snippet.len() > 600 {
+                snippet.truncate(600);
+                snippet.push_str("...");
+            }
+            anyhow!(
+                "no JSON result line received from {}; remote cmd: {}; output: {}",
+                host.address,
+                cmd,
+                snippet
+            )
+        })?;
     let result: WorkerResult = serde_json::from_str(&line)
         .map_err(|e| anyhow!("failed to parse result from {}: {} (line: {})", host.address, e, line))?;
     println!("[{}] done: qps {:.0}, p99 {:.2}ms (elapsed {:.1}s)", tag.cyan(), result.qps, result.p99_latency_ms, launch_instant.elapsed().as_secs_f64());

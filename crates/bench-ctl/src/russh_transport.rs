@@ -43,16 +43,20 @@ async fn connect(host: &Host, key_path: &Option<String>) -> Result<Handle<Client
         .await
         .map_err(|e| anyhow!("connect to {}:{} failed: {}", host.address, host.port, e))?;
 
-    // password auth when configured
+    // password auth when configured; a transport-level failure falls through
+    // to publickey instead of aborting (some servers reject the method)
     if !host.password.is_empty() {
-        let auth = handle
+        match handle
             .authenticate_password(host.user.clone(), host.password.clone())
             .await
-            .map_err(|e| anyhow!("password auth to {} failed: {}", host.address, e))?;
-        if auth.success() {
-            return Ok(handle);
+        {
+            Ok(auth) if auth.success() => return Ok(handle),
+            Ok(_) => {}
+            Err(e) => eprintln!(
+                "warning: password auth to {} failed: {}; trying public keys",
+                host.address, e
+            ),
         }
-        // fall through to publickey
     }
 
     // publickey auth: explicit key, or default locations
@@ -100,6 +104,12 @@ impl RusshTransport {
     pub async fn upload(&self, host: &Host, local: &Path, remote: &str) -> Result<()> {
         let handle = connect(host, &self.key_path).await?;
         let channel = handle.channel_open_session().await?;
+        // The SFTP subsystem must be requested before sending SFTP packets;
+        // otherwise the INIT packet is never answered and russh-sftp times out.
+        channel
+            .request_subsystem(true, "sftp")
+            .await
+            .map_err(|e| anyhow!("request sftp subsystem on {} failed: {}", host.address, e))?;
         let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
 
         let data = tokio::fs::read(local)
@@ -129,6 +139,8 @@ impl RusshTransport {
         Ok(RemoteProcess::Russh(RusshProcess {
             channel,
             collected: String::new(),
+            pending: String::new(),
+            eof: false,
         }))
     }
 }
@@ -156,44 +168,62 @@ async fn run_channel_to_end(mut channel: Channel<client::Msg>) -> (String, u32) 
 
 pub struct RusshProcess {
     channel: Channel<client::Msg>,
+    /// All complete lines seen so far (used as the final `wait` output).
     collected: String,
+    /// Bytes of a line not yet terminated by '\n'.
+    pending: String,
+    eof: bool,
 }
 
 impl RusshProcess {
+    fn take_buffered_line(&mut self) -> Option<String> {
+        let pos = self.pending.find('\n')?;
+        let mut line: String = self.pending.drain(..=pos).collect();
+        while line.ends_with('\n') || line.ends_with('\r') {
+            line.pop();
+        }
+        self.collected.push_str(&line);
+        self.collected.push('\n');
+        Some(line)
+    }
+
+    /// Next complete stdout line. A line split across several SSH data packets
+    /// is buffered until its newline arrives (a JSON result line must not be
+    /// returned in fragments).
     pub async fn next_line(&mut self) -> Option<String> {
         loop {
-            let Some(msg) = self.channel.wait().await else {
-                return None;
-            };
-            if let ChannelMsg::Data { ref data } = msg {
-                let text = String::from_utf8_lossy(data);
-                let mut lines = text.lines();
-                if let Some(first) = lines.next() {
-                    self.collected.push_str(first);
-                    self.collected.push('\n');
-                    for extra in lines {
-                        self.collected.push_str(extra);
-                        self.collected.push('\n');
-                    }
-                    return Some(first.to_string());
+            if let Some(line) = self.take_buffered_line() {
+                return Some(line);
+            }
+            if self.eof {
+                if self.pending.is_empty() {
+                    return None;
                 }
+                let line = std::mem::take(&mut self.pending);
+                self.collected.push_str(&line);
+                self.collected.push('\n');
+                return Some(line);
+            }
+            match self.channel.wait().await {
+                Some(ChannelMsg::Data { ref data }) => {
+                    self.pending.push_str(&String::from_utf8_lossy(data));
+                }
+                Some(ChannelMsg::ExtendedData { ref data, .. }) => {
+                    self.pending.push_str(&String::from_utf8_lossy(data));
+                }
+                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
+                    self.eof = true;
+                }
+                _ => {}
             }
         }
     }
 
     pub async fn wait(&mut self) -> Output {
-        while let Some(msg) = self.channel.wait().await {
-            if let ChannelMsg::Data { ref data } = msg {
-                let text = String::from_utf8_lossy(data);
-                for line in text.lines() {
-                    self.collected.push_str(line);
-                    self.collected.push('\n');
-                }
-            }
-        }
+        while self.next_line().await.is_some() {}
         Output {
             success: true,
-            stdout: self.collected.clone(),
+            stdout: std::mem::take(&mut self.collected),
             stderr: String::new(),
         }
     }
