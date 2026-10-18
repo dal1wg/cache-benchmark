@@ -1,3 +1,7 @@
+# 国内开发环境走 rsproxy.cn 镜像加速；CI（GitHub Actions 海外 runner）设置
+# CARGO_SOURCE_CRATES_IO_REPLACE_WITH=env 短路上面的替换，直接用官方 crates.io。
+# （cargo 的 [source] 通过环境变量覆盖时，replace-with 指向一个不存在的
+# "env" 源会报错，因此 CI 侧改用删除本文件的方式，见 workflows/CI.yml）
 [source.crates-io]
 replace-with = 'rsproxy-sparse'
 

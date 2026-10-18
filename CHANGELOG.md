@@ -5,7 +5,7 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本管理遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.1.3] - 2026-10-18
 
 ### 新增
 
@@ -115,7 +115,8 @@
 - 3 主 3 从集群 + 1 standalone 环境完成冒烟测试：拓扑发现、灌数据、读压测、Lua、JSON 输出全部通过
 - 三机分布式压测：同步启动，聚合 QPS 236,959，p99 7.4ms；各 master `total_commands_processed` 增量偏差 <5%
 
-[Unreleased]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.2...HEAD
+[Unreleased]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.3...HEAD
+[0.1.3]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.2...v0.1.3
 [0.1.2]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.1...v0.1.2
 [0.1.1]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.0...v0.1.1
 [0.1.0]: https://gitlab.gzky.com/dale.wang/cache-benchmark/releases/tag/v0.1.0
