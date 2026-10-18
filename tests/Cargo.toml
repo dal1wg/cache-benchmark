@@ -57,6 +57,10 @@ name = "ctl_dist"
 path = "bench-ctl/dist.rs"
 
 [[test]]
+name = "ctl_clock"
+path = "bench-ctl/clock.rs"
+
+[[test]]
 name = "ctl_report"
 path = "bench-ctl/report.rs"
 

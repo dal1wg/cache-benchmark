@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **ctl 时钟偏移自动补偿**：`run` 前通过 SSH 逐台探测远端时钟（`date +%s.%N`，
+  NTP 中点法估算偏移），按偏移为每台机器计算独立的 `--start-at`，压测机时钟
+  不一致（实测 ±20s）也能真实同步启动；探测失败自动退化为 offset=0
+- worker `--start-at` 支持小数时间戳（毫秒级精度：粗睡 + 最后 2ms 自旋）
+
 ### 修复
 
 - **russh 传输无法分发 worker**：`upload` 未先向服务器请求 `sftp` 子系统，SFTP

@@ -115,7 +115,7 @@ cache-benchmark --lua-file -s 10 workloads/hello.lua
 | `-q` | 静默模式 | false |
 | `--tls` | TLS 连接（`rediss://`） | false |
 | `--json` | 结束时输出单行 JSON 结果（供 ctl 消费） | false |
-| `--start-at <unix_ts>` | 等待到指定 unix 时间戳再开始（分布式同步启动） | — |
+| `--start-at <unix_ts>` | 等待到指定 unix 时间戳再开始（分布式同步启动，支持小数秒；ctl 自动按各机时钟偏移修正） | — |
 
 ## 分布式压测
 
@@ -159,7 +159,8 @@ cache-bench-ctl run --lead 10 --output result.json -- \
 `run` 的工作流程：
 
 1. 计算统一启动时刻（当前时间 + `--lead` 秒），加 `--skip-distribute` 可跳过分发
-2. 在每台机器上启动 `cache-benchmark <参数> --start-at <ts> -q --json`（NTP 对时下启动误差 <10ms）
+2. 逐台探测远端时钟偏移（NTP 中点法，`date +%s.%N`），为每台机器生成按其本地钟修正的 `--start-at <ts>`——压测机时钟不准（偏差可达几十秒）也能真实同步；worker 支持小数时间戳（毫秒精度）
+3. 在每台机器上启动 `cache-benchmark <参数> --start-at <修正后的 ts> -q --json`（对时补偿后启动误差 <10ms）
 3. 实时转发各机器输出，带 `[user@host]` 前缀
 4. 收敛聚合：
    - 总 QPS = 各机器求和

@@ -76,3 +76,53 @@ pub fn find_worker_binary(bin_dir: &Path, arch: &str) -> Result<PathBuf> {
 pub fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
+
+// ---------- clock offset compensation ----------
+
+/// Result of probing one host's clock against the ctl machine's clock.
+#[derive(Debug, Clone, Copy)]
+pub struct ClockOffset {
+    /// remote clock minus local clock, in seconds (positive = remote ahead)
+    pub offset_secs: f64,
+    /// round-trip time of the probe exec, in milliseconds
+    pub rtt_ms: f64,
+    /// whether the remote timestamp had sub-second resolution (`date +%s.%N`)
+    pub precise: bool,
+}
+
+/// Parse a remote `date` output as fractional unix seconds.
+/// Accepts `1792302394.123456789` (GNU `%s.%N`) and `1792302394` (`%s`).
+pub fn parse_remote_timestamp(s: &str) -> Option<f64> {
+    let s = s.trim();
+    if s.is_empty() || !s.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    s.parse::<f64>().ok().filter(|v| v.is_finite() && *v > 0.0)
+}
+
+/// NTP-style offset estimate from one probe.
+///
+/// `t0`/`t1` are local clock readings immediately before/after the exec;
+/// `remote` is the timestamp the host reported for some instant between them.
+/// Assuming the exec latency is symmetric, the reading corresponds to the
+/// local midpoint `(t0 + t1) / 2`.
+pub fn offset_from_probe(t0: f64, t1: f64, remote: f64) -> (f64, f64) {
+    let offset = remote - (t0 + t1) / 2.0;
+    let rtt_ms = (t1 - t0) * 1000.0;
+    (offset, rtt_ms)
+}
+
+/// Per-host `--start-at` value so every worker starts at the same true
+/// instant, given the host's clock offset (remote = local + offset).
+///
+/// The worker's sleep deadline is on ITS OWN clock: it fires when
+/// remote_clock == ts. We want that instant to be `reference` on the ctl
+/// clock, i.e. when remote_clock == reference + offset. Millisecond
+/// precision is kept (the worker accepts fractional timestamps).
+pub fn compensated_start_at(reference: f64, offset_secs: f64) -> f64 {
+    let v = reference + offset_secs;
+    if !v.is_finite() || v <= 0.0 {
+        return reference.max(0.001);
+    }
+    v
+}

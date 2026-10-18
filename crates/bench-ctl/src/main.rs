@@ -1,4 +1,9 @@
-use cache_bench_ctl::{WorkerResult, hosts::{Host, load_hosts}, report::print_report, shell_escape, transport::{Transport, build_transport}};
+use cache_bench_ctl::WorkerResult;
+use cache_bench_ctl::hosts::{Host, load_hosts};
+use cache_bench_ctl::report::print_report;
+use cache_bench_ctl::shell_escape;
+use cache_bench_ctl::transport::{Transport, build_transport};
+use cache_bench_ctl::{ClockOffset, compensated_start_at, offset_from_probe, parse_remote_timestamp};
 use anyhow::{Result, anyhow, bail};
 use clap::{Arg, ArgAction, Command};
 use colored::Colorize;
@@ -71,22 +76,89 @@ struct RunArgs {
     output: Option<String>,
 }
 
+/// Probe a host's clock offset against the local clock via one SSH exec of
+/// `date +%s.%N` (falls back to `+%s` when %N is unsupported). Returns
+/// None when both variants fail.
+pub async fn probe_clock_offset(transport: &Transport, host: &Host) -> Result<ClockOffset> {
+    let mut last_err = String::new();
+    for (cmd, precise) in [("date +%s.%N", true), ("date +%s", false)] {
+        let t0 = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64();
+        let out = transport.exec(host, cmd).await?;
+        let t1 = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64();
+        if !out.success {
+            last_err = format!("`{}` failed: {}", cmd, out.stderr.trim());
+            continue;
+        }
+        if let Some(remote) = parse_remote_timestamp(&out.stdout) {
+            let (offset_secs, rtt_ms) = offset_from_probe(t0, t1, remote);
+            return Ok(ClockOffset { offset_secs, rtt_ms, precise });
+        }
+        last_err = format!("`{}` returned unparsable output: {:?}", cmd, out.stdout);
+    }
+    bail!("clock probe on {} failed: {}", host.address, last_err)
+}
+
 async fn run(args: RunArgs) -> Result<()> {
     if !args.skip_distribute {
         distribute(&args.transport, &args.hosts, &args.bin_dir, args.worker.as_deref()).await?;
     }
 
-    // synchronized start timestamp
-    let start_at = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + args.lead_secs.max(1);
-    println!("launching {} host(s) in parallel, synchronized start at unix {} ...", args.hosts.len(), start_at);
+    // synchronized start timestamp (reference instant on the LOCAL clock)
+    let reference = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64() + args.lead_secs.max(1) as f64;
+
+    // probe each host's clock offset so `--start-at` can be corrected for
+    // clock skew (remote = local + offset). Probes run sequentially: each is
+    // one quick exec, and serializing them avoids skewing the RTTs.
+    let mut offsets: Vec<ClockOffset> = Vec::with_capacity(args.hosts.len());
+    for host in &args.hosts {
+        match probe_clock_offset(&args.transport, host).await {
+            Ok(o) => {
+                let note = if o.precise { "" } else { " (second-granularity remote clock)" };
+                println!(
+                    "clock probe {}: offset {:+.3}s, rtt {:.0}ms{}",
+                    host.address, o.offset_secs, o.rtt_ms, note
+                );
+                offsets.push(o);
+            }
+            Err(e) => {
+                eprintln!("{}", format!("clock probe {} failed: {:#}; assuming offset 0", host.address, e).yellow());
+                offsets.push(ClockOffset { offset_secs: 0.0, rtt_ms: 0.0, precise: false });
+            }
+        }
+    }
+
+    // probe time already elapsed; make sure the reference instant is still
+    // comfortably in the future on every (possibly skewed) host clock
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64();
+    let max_ahead = offsets.iter().map(|o| o.offset_secs).fold(0.0_f64, f64::max);
+    let min_headroom = args.lead_secs.max(1) as f64 + max_ahead + 2.0;
+    let reference = if reference - now < min_headroom {
+        let r = now + min_headroom;
+        println!("start reference moved to unix {:.3} to clear clock probes and skew", r);
+        r
+    } else {
+        reference
+    };
+
+    println!("launching {} host(s) in parallel, synchronized start at unix {:.3} ...", args.hosts.len(), reference);
+
+    // (host, per-host start timestamp on that host's own clock)
+    let launch_plan: Vec<(Host, f64)> = args
+        .hosts
+        .iter()
+        .cloned()
+        .zip(offsets.iter().map(|o| compensated_start_at(reference, o.offset_secs)))
+        .collect();
 
     let mut jobs = Vec::new();
-    for host in &args.hosts {
+    for (host, start_at) in launch_plan {
         let transport = transport_ref(&args.transport);
-        let host = host.clone();
         let worker_args = args.worker_args.clone();
         jobs.push(tokio::spawn(async move {
-            println!("[{}:{}] ssh connected, launching worker (synchronized start at {})", host.user.cyan(), host.address.cyan(), start_at);
+            println!(
+                "[{}:{}] ssh connected, launching worker (start at {:.3} on its clock)",
+                host.user.cyan(), host.address.cyan(), start_at
+            );
             let r = run_on_host(&transport, &host, &worker_args, start_at).await;
             if let Err(e) = &r {
                 eprintln!("[{}:{}] {}", host.user, host.address, format!("failed: {:#}", e).red());
@@ -104,7 +176,7 @@ async fn run(args: RunArgs) -> Result<()> {
     Ok(())
 }
 
-async fn run_on_host(transport: &Transport, host: &Host, worker_args: &[String], start_at: u64) -> Result<WorkerResult> {
+async fn run_on_host(transport: &Transport, host: &Host, worker_args: &[String], start_at: f64) -> Result<WorkerResult> {
     let tag = format!("{}:{}", host.user, host.address);
     let remote_path = format!("{}/cache-benchmark", host.remote_dir);
 
@@ -114,7 +186,7 @@ async fn run_on_host(transport: &Transport, host: &Host, worker_args: &[String],
         cmd.push_str(&shell_escape(arg));
         cmd.push(' ');
     }
-    cmd.push_str(&format!("--start-at {} -q --json", start_at));
+    cmd.push_str(&format!("--start-at {:.3} -q --json", start_at));
 
     let launch_instant = std::time::Instant::now();
     let mut proc = transport.spawn(host, &cmd).await?;

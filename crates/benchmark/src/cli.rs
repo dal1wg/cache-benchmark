@@ -39,7 +39,7 @@ pub fn main() {
         .arg(Arg::new("json").long("json").action(ArgAction::SetTrue).help("Print the final result as a single-line JSON object (for cache-bench-ctl)."))
         .arg(Arg::new("lua").long("lua").action(ArgAction::SetTrue).help("Use lua script for generating random command"))
         .arg(Arg::new("lua-file").long("lua-file").action(ArgAction::SetTrue).help("Use lua script file for generating random command"))
-        .arg(Arg::new("start-at").long("start-at").value_name("unix_ts").value_parser(clap::value_parser!(u64)).help("Delay the benchmark until the given unix timestamp (seconds). Used by cache-bench-ctl for synchronized start."))
+        .arg(Arg::new("start-at").long("start-at").value_name("unix_ts").value_parser(clap::value_parser!(f64)).help("Delay the benchmark until the given unix timestamp (fractional seconds allowed, used by cache-bench-ctl for synchronized start with clock-offset compensation)."))
         .arg(Arg::new("command").value_name("command").index(1).default_value("SET {key uniform 100000} {value 64}").help("The Redis command to benchmark (default SET {key uniform 100000} {value 64})"))
         .get_matches();
 
@@ -61,7 +61,7 @@ pub fn main() {
     let quiet: bool = *matches.get_one("quiet").unwrap() || *matches.get_one("json").unwrap();
     let json: bool = *matches.get_one("json").unwrap();
     let lua: bool = *matches.get_one("lua").unwrap() || *matches.get_one("lua-file").unwrap();
-    let start_at: Option<u64> = matches.get_one("start-at").copied();
+    let start_at: Option<f64> = matches.get_one("start-at").copied();
     let mut command: String = matches.get_one::<String>("command").unwrap().clone();
 
     if *matches.get_one::<bool>("lua-file").unwrap() {
@@ -82,15 +82,22 @@ pub fn main() {
         }
     }
 
-    // Wait until start-at timestamp (synchronized start for distributed runs)
+    // Wait until start-at timestamp (synchronized start for distributed runs).
+    // Fractional seconds supported: cache-bench-ctl compensates per-host clock
+    // offsets, and sleeping with ms precision keeps the residual error small.
     if let Some(ts) = start_at {
-        let deadline = UNIX_EPOCH + std::time::Duration::from_secs(ts);
+        let deadline = UNIX_EPOCH + std::time::Duration::from_secs_f64(ts.max(0.0_f64));
         match deadline.duration_since(SystemTime::now()) {
             Ok(wait) => {
                 if !quiet {
                     println!("waiting {:.2}s for synchronized start at {}", wait.as_secs_f64(), ts);
                 }
-                std::thread::sleep(wait);
+                // coarse sleep, then spin the last 2ms for ms-level accuracy
+                let coarse = wait.saturating_sub(std::time::Duration::from_millis(2));
+                std::thread::sleep(coarse);
+                while SystemTime::now() < deadline {
+                    std::thread::sleep(std::time::Duration::from_micros(200));
+                }
             }
             Err(_) => {
                 // deadline already passed: start immediately
