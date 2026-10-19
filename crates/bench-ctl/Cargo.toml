@@ -14,8 +14,10 @@ name = "cache-bench-ctl"
 path = "src/main.rs"
 
 [features]
-default = []
-# Pure Rust SSH transport (no external ssh/scp binaries needed)
+default = ["russh"]
+# Pure Rust SSH transport (no external ssh/scp binaries needed).
+# On by default so released binaries support both `ssh` and `russh`
+# transports; opt out with `--no-default-features`.
 russh = ["dep:russh", "dep:russh-sftp"]
 
 [dependencies]

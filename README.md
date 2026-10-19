@@ -41,8 +41,9 @@
 
 ```bash
 cargo build --release
-# 如需纯 Rust SSH 通道（不依赖系统 ssh 命令）：
-cargo build --release --features russh
+# 默认即包含纯 Rust SSH 通道（--transport russh，不依赖系统 ssh 命令）；
+# 如需不含 russh 的最小构建：
+cargo build --release -p cache-bench-ctl --no-default-features
 ```
 
 **构建静态链接的 Linux 二进制**（推荐用于分发，无 glibc 版本要求）：
@@ -131,7 +132,7 @@ port = 22                  # 可选，ssh 端口，默认 22
 user = "root"              # 可选，ssh 用户，默认 root
 remote_dir = "/root/cache-benchmark/tmp"   # 可选，worker 落盘目录
 # arch = "x86_64"          # 可选，覆盖架构自动探测
-# password = "xxx"         # 可选，仅 --transport russh 生效
+# password = "xxx"         # 可选：russh 通道原生支持；系统 ssh 通道经 sshpass 使用
 
 [[hosts]]
 address = "10.0.0.2"
@@ -171,7 +172,7 @@ cache-bench-ctl run --lead 10 --output result.json -- \
 
 ```bash
 cache-bench-ctl --transport ssh run ...    # 默认：系统 ssh/scp（复用 ~/.ssh/config、密钥、跳板机）
-cache-bench-ctl --transport russh run ...  # 纯 Rust 实现（需 --features russh 编译；支持密钥文件 + 密码认证）
+cache-bench-ctl --transport russh run ...  # 纯 Rust 实现（默认内置；支持密钥文件 + 密码认证）
 ```
 
 **密码认证**：在 `hosts.toml` 中为某台机器配置 `password` 后：

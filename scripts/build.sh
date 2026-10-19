@@ -10,6 +10,10 @@
 #   ./scripts/build.sh              # x86_64 musl（默认）
 #   ./scripts/build.sh aarch64      # aarch64 musl（交叉编译，需安装交叉工具链）
 #   SKIP_TARBALL=1 ./scripts/build.sh   # 只编译不打包
+#
+# cache-bench-ctl 默认开启 russh feature（纯 Rust SSH 通道，--transport russh，
+# 支持密钥 + 密码认证，无需系统 ssh/sshpass）；如需最小构建：
+#   NO_DEFAULT_FEATURES=1 ./scripts/build.sh
 set -e
 
 ARCH="${1:-x86_64}"
@@ -38,7 +42,12 @@ echo "==> 添加 Rust target: $TARGET"
 rustup target add "$TARGET"
 
 echo "==> 编译（release + musl 静态链接）"
-cargo build --release --target "$TARGET" -p cache-benchmark -p cache-bench-ctl
+FEATURE_FLAGS=""
+if [ -n "$NO_DEFAULT_FEATURES" ]; then
+    FEATURE_FLAGS="--no-default-features"
+    echo "    NO_DEFAULT_FEATURES=1：不含 russh 传输"
+fi
+cargo build --release --target "$TARGET" -p cache-benchmark -p cache-bench-ctl $FEATURE_FLAGS
 
 mkdir -p dist
 WORKER="cache-benchmark-$ARCH"

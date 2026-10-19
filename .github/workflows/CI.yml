@@ -55,10 +55,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - name: Build workers
-        run: cargo build --release --target ${{ matrix.target }} -p cache-benchmark
-      - name: Build ctl (with russh transport)
-        run: cargo build --release --target ${{ matrix.target }} -p cache-bench-ctl --features russh
+      - name: Build binaries (ctl includes russh transport by default)
+        run: cargo build --release --target ${{ matrix.target }} -p cache-benchmark -p cache-bench-ctl
       - name: Package
         shell: bash
         run: |
