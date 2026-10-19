@@ -38,7 +38,7 @@ echo "==> 添加 Rust target: $TARGET"
 rustup target add "$TARGET"
 
 echo "==> 编译（release + musl 静态链接）"
-cargo build --release --target "$TARGET" -p cache-benchmark -p cache-bench-ctl
+cargo build --release --target "$TARGET" -p cache-benchmark -p cache-bench-ctl --features cache-bench-ctl/russh
 
 mkdir -p dist
 WORKER="cache-benchmark-$ARCH"

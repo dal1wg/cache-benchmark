@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 fn default_cores() -> String {
     // all logical cores: "0-N"
-    let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let n = core_affinity::get_core_ids().map(|ids| ids.len()).filter(|n| *n > 0).unwrap_or(1);
     format!("0-{}", n - 1)
 }
 
@@ -26,12 +26,13 @@ pub fn main() {
         .arg(Arg::new("username").short('u').value_name("username").default_value("").help("Used to send ACL style \"AUTH username pass\". Needs -a."))
         .arg(Arg::new("password").short('a').value_name("password").default_value("").help("Password for Redis Auth"))
         .arg(Arg::new("clients").short('c').value_name("clients").value_parser(clap::value_parser!(u64)).default_value("0").help("Number of parallel connections (0 for auto, default: 0)"))
+        .arg(Arg::new("max-connections").long("max-connections").value_parser(clap::value_parser!(u64).range(1..)).default_value("1024").help("Maximum logical clients per worker in auto mode (-c 0); cluster clients may open one connection per master"))
         .arg(Arg::new("cores").long("cores").value_name("cores").help("Comma-separated list of CPU cores to use (e.g. 0,1,2 or 0-3, default all)"))
         .arg(Arg::new("cluster").long("cluster").action(ArgAction::SetTrue).help("Use cluster mode (default false)"))
         .arg(Arg::new("requests").short('n').value_name("requests").value_parser(clap::value_parser!(u64)).default_value("0").help("Total number of requests (default 0), 0 for unlimited."))
-        .arg(Arg::new("target").short('t').value_name("target").value_parser(clap::value_parser!(u64)).default_value("0").help("Target number of requests per second, 0 for unlimited, recommended to be multiple of 100."))
+        .arg(Arg::new("target").short('t').value_name("target").value_parser(clap::value_parser!(u64).range(..=u32::MAX as u64)).default_value("0").help("Target number of requests per second, 0 for unlimited, recommended to be multiple of 100."))
         .arg(Arg::new("seconds").short('s').value_name("seconds").value_parser(clap::value_parser!(u64)).default_value("0").help("Total time in seconds (default 0), 0 for unlimited."))
-        .arg(Arg::new("pipeline").short('P').value_name("pipeline").value_parser(clap::value_parser!(u64)).default_value("1").help("Pipeline <numreq> requests. Default 1 (no pipeline)."))
+        .arg(Arg::new("pipeline").short('P').value_name("pipeline").value_parser(clap::value_parser!(u64).range(1..)).default_value("1").help("Pipeline <numreq> requests. Default 1 (no pipeline)."))
         .arg(Arg::new("tls").long("tls").action(ArgAction::SetTrue).help("Use TLS for connection (default false)"))
         .arg(Arg::new("load").long("load").action(ArgAction::SetTrue).help("Only load data to Redis, no benchmark."))
         .arg(Arg::new("short-connection").long("short-connection").action(ArgAction::SetTrue).help("Create a new connection for each command and close it after use."))
@@ -48,6 +49,7 @@ pub fn main() {
     let username: &String = matches.get_one("username").unwrap();
     let password: &String = matches.get_one("password").unwrap();
     let connections: u64 = *matches.get_one("clients").unwrap();
+    let max_connections: u64 = *matches.get_one("max-connections").unwrap();
     let cores_str = matches.get_one::<String>("cores").cloned().unwrap_or_else(default_cores);
     let cores: Vec<u16> = parse_cores(&cores_str);
     let cluster: bool = *matches.get_one("cluster").unwrap();
@@ -119,6 +121,7 @@ pub fn main() {
     let case = Case {
         command: make_generator(&command, lua),
         connections,
+        max_connections,
         pipeline,
         count,
         target,

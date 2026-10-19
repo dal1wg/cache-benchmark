@@ -28,6 +28,7 @@ fn lua_writes_verifiable_keys() {
     let case = cache_benchmark::Case {
         command: cache_benchmark::make_generator(script, true),
         connections: 2,
+        max_connections: 1024,
         count: 50,
         target: 0,
         seconds: 0,

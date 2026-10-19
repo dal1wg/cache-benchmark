@@ -106,3 +106,23 @@ fn auto_connection_auto_mode_grows_when_qps_doubles() {
     a.adjust(&h);
     assert!(!a.ready, "still growing: not ready");
 }
+
+#[test]
+fn configurable_auto_cap_and_fixed_connection_distribution() {
+    let auto = AutoConnection::with_limit(0, 128, 4096);
+    assert_eq!(auto.limiters.iter().map(|l| l.total_conn).sum::<u64>(), 4096);
+    let fixed = AutoConnection::with_limit(512, 128, 1024);
+    assert!(fixed.limiters.iter().all(|l| l.total_conn == 4));
+}
+
+#[test]
+fn auto_mode_stops_at_configured_cap() {
+    let mut auto = AutoConnection::with_limit(0, 1, 1);
+    let h = Histogram::new();
+    std::thread::sleep(std::time::Duration::from_millis(550));
+    auto.adjust(&h);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(auto.limiters[0].wait_new_conn());
+    auto.adjust(&h);
+    assert!(auto.ready, "hitting the cap must end warmup without another growth cycle");
+}

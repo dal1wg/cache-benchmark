@@ -22,6 +22,7 @@ fn case(count: u64, command: &str) -> Case {
     Case {
         command: make_generator(command, false),
         connections: 4,
+        max_connections: 1024,
         count,
         target: 0,
         seconds: 0,
@@ -133,4 +134,44 @@ fn short_connection_rejects_pipeline() {
     c.pipeline = 4;
     c.short_connection = true;
     let _ = run_benchmark(config(&server.addr()), vec![0], c, false, true);
+}
+
+#[test]
+fn auto_count_only_reports_nonzero_qps() {
+    let server = start_mock_blocking();
+    let mut c = case(128, "GET {key uniform 1000}");
+    c.connections = 0;
+    c.pipeline = 16;
+    let result = run_benchmark(config(&server.addr()), vec![0], c, false, true);
+    assert_eq!(result.count, 128);
+    assert!(result.qps > 0.0);
+    assert_eq!(result.histogram.cnt(), result.count);
+    assert!((result.qps * result.elapsed_secs - result.count as f64).abs() < 0.01);
+}
+
+#[test]
+fn pipeline_rate_limit_counts_commands_not_batches() {
+    let server = start_mock_blocking();
+    let mut c = case(0, "GET {key uniform 1000}");
+    c.connections = 1;
+    c.pipeline = 16;
+    c.seconds = 2;
+    c.target = 100;
+    let result = run_benchmark(config(&server.addr()), vec![0], c, false, true);
+    assert!(result.qps <= 115.0, "-t 100 must limit commands, not batches: {}", result.qps);
+    assert!(result.qps >= 50.0, "rate limiting should still make progress: {}", result.qps);
+}
+
+#[test]
+fn auto_timed_count_latency_and_qps_share_a_window() {
+    let server = start_mock_blocking();
+    let mut c = case(0, "GET {key uniform 1000}");
+    c.connections = 0;
+    c.max_connections = 2;
+    c.pipeline = 16;
+    c.seconds = 1;
+    let result = run_benchmark(config(&server.addr()), vec![0], c, false, true);
+    assert!(result.count > 0);
+    assert_eq!(result.count, result.histogram.cnt());
+    assert!((result.qps * result.elapsed_secs - result.count as f64).abs() < 0.01);
 }

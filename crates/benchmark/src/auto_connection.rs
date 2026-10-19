@@ -86,9 +86,14 @@ pub struct AutoConnection {
 
 impl AutoConnection {
     pub fn new(active_conn: u64, thread_count: u64) -> Self {
+        Self::with_limit(active_conn, thread_count, MAX_CONN)
+    }
+
+    pub fn with_limit(active_conn: u64, thread_count: u64, max_connections: u64) -> Self {
+        assert!(thread_count > 0 && max_connections > 0);
         let mut limiters = Vec::new();
         let auto = active_conn == 0;
-        let mut total_connection = if auto { MAX_CONN } else { active_conn };
+        let mut total_connection = if auto { max_connections } else { active_conn };
         let mut left_count = thread_count;
         for _ in 0..thread_count {
             let my_conn = (total_connection + left_count - 1) / left_count;
@@ -118,7 +123,16 @@ impl AutoConnection {
     }
 
     pub fn adjust(&mut self, h: &Histogram) {
+        self.adjust_count(h.cnt());
+    }
+
+    pub fn adjust_count(&mut self, count: u64) {
         if self.ready {
+            return;
+        }
+
+        if self.active_conn() >= self.limiters.iter().map(|l| l.total_conn).sum::<u64>() {
+            self.ready = true;
             return;
         }
 
@@ -126,12 +140,12 @@ impl AutoConnection {
         if elapsed < 0.5 {
             return;
         }
-        let qps = (h.cnt() - self.last_cnt) as f64 / elapsed;
+        let qps = (count - self.last_cnt) as f64 / elapsed;
         let need_add_conn;
         if qps >= self.last_qps * 2.0 || elapsed >= 3f64 {
             if self.last_qps == 0.0 {
                 need_add_conn = 1; // at least 1 connection
-            } else if qps > self.last_qps * 1.3 {
+            } else if qps > self.last_qps * 1.05 {
                 need_add_conn = self.active_conn();
             } else {
                 self.ready = true;
@@ -145,7 +159,7 @@ impl AutoConnection {
             self.inx = (self.inx + 1) % self.limiters.len();
         }
         self.last_qps = qps;
-        self.last_cnt = h.cnt();
+        self.last_cnt = count;
         self.instant = std::time::Instant::now();
     }
 }

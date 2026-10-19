@@ -95,7 +95,8 @@ cache-benchmark --lua-file -s 10 workloads/hello.lua
 - 启动时打印拓扑：`cluster topology: 3 masters, 3 replicas, slots 16384/16384 covered` + 主节点列表
 - 每条命令按 key 的 CRC16 哈希槽路由到对应 master，key 均匀 → 压力均匀分布到所有主节点
 - MOVED/ASK 自动跟随，拓扑变更自动刷新；只压主节点
-- 集群模式下 pipeline 批次内命令并发发送（每条按各自 slot 路由），实测负载分布偏差 <5%
+- 集群模式下 GET、SET、INCR 等常见单 key 命令按 master 分组，向各 master 并发发送真正的 pipeline；其他命令保留通用集群路由。
+- MOVED/ASK 等重定向发生时，仅重试被拒绝的命令，并切换回通用集群客户端，不重放已成功的写入。
 - `--json` 输出包含 `cluster_nodes`（主节点地址列表）
 
 ## 命令行选项
@@ -103,7 +104,8 @@ cache-benchmark --lua-file -s 10 workloads/hello.lua
 | 选项 | 说明 | 默认值 |
 |---|---|---|
 | `-h` `-p` `-u` `-a` | 服务器地址 / 端口 / ACL 用户名 / 密码 | 127.0.0.1 / 6379 / "" / "" |
-| `-c` | 连接数（0 = 自动扩连：QPS 增长不足 30% 时锁定） | 0 |
+| `-c` | 连接数（0 = 自动扩连：QPS 增长不足 5% 时锁定） | 0 |
+| `--max-connections` | `-c 0` 自动扩连上限（每个 worker 的逻辑客户端数；集群模式每个客户端可连接多个 master） | 1024 |
 | `-n` / `-s` | 总请求数 / 持续秒数（0 = 不限） | 0 |
 | `-t` | 目标 QPS 限流（0 = 不限） | 0 |
 | `-P` | pipeline 深度 | 1 |
@@ -210,3 +212,21 @@ CTL_HOSTS_FILE=hosts.toml cargo test -p cache-benchmark-tests --test integration
 ## License
 
 MIT
+
+## 本地压力优化版 0.1.3-pressure.1
+
+本版本优化集群按 master 批处理、命令生成和延迟统计；统计按工作线程分片，每批只更新一次计数，减少多核原子操作争用。默认核心范围使用与 CPU 绑定相同的可用核心列表长度，避免两套核心计数不一致。
+
+自动扩连默认上限仍为每 worker 1024 个逻辑客户端，可使用 `--max-connections 4096` 调整；这不是物理 TCP 连接总上限。自动模式按 QPS 增长决定何时停止扩连，不以 Redis CPU 是否达到 100% 为停止条件。
+
+```bash
+cache-benchmark -h 10.6.205.47 -p 16380 --cluster \
+  -a '实际Redis密码' -c 0 --max-connections 4096 -P 64 -s 120 \
+  'SET {key uniform 1000000} {value 64}'
+```
+
+自动模式的 QPS、count 和延迟直方图统一排除已完成的扩连预热阶段。`-s` 从扩连结束后开始计时；`-n` 仍限制包含预热在内的总发出请求数。若在预热结束前已执行完 `-n`，结果会统计整段执行，不再错误报告 QPS 为 0。
+
+`-t` 现按请求数扣减配额，而不是按 pipeline 批次扣减。延迟仍为整批完成时间，并非逐请求单独计时。
+
+CPU 是否满载需要现场检查主从角色、压力端能力、网络及 Redis 配置；此修改不承诺每个 Redis 进程都达到 100%。同机压测还需注意压力程序和 Redis 的资源竞争。
