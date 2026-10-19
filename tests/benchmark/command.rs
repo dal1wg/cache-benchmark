@@ -1,4 +1,4 @@
-use cache_benchmark::command::{CommandGenerator, PlaceholderEnum, PlaceholderGenerator, PlaceholderValue};
+use cache_benchmark::command::{CommandGenerator, PlaceholderEnum, PlaceholderGenerator, PlaceholderValue, DEFAULT_KEY_PREFIX};
 
 /// Extract args of a generated redis::Cmd as strings.
 fn cmd_args(cmd: &redis::Cmd) -> Vec<String> {
@@ -17,6 +17,70 @@ fn set_command_args() {
     assert_eq!(args[0], "SET");
     assert!(args[1].starts_with("key_"), "key placeholder format: {}", args[1]);
     assert_eq!(args[2].len(), 8, "value placeholder length");
+}
+
+#[test]
+fn custom_key_prefix_applies_to_all_distributions() {
+    let mut g = PlaceholderGenerator::try_new_with_prefix(
+        "SET {key uniform 1000} {value 8}",
+        "user:profile:",
+    )
+    .unwrap();
+    for _ in 0..100 {
+        let args = cmd_args(&g.gen_cmd());
+        assert!(args[1].starts_with("user:profile:"), "prefixed key: {}", args[1]);
+        let num: u64 = args[1].trim_start_matches("user:profile:").parse().unwrap();
+        assert!(num < 1000);
+    }
+
+    let mut g = PlaceholderGenerator::try_new_with_prefix(
+        "GET {key sequence 3}",
+        "order:",
+    )
+    .unwrap();
+    let expected = ["order:0000000000", "order:0000000001", "order:0000000002"];
+    for want in expected {
+        assert_eq!(cmd_args(&g.gen_cmd())[1], want);
+    }
+}
+
+#[test]
+fn key_prefix_zero_padding_is_kept() {
+    // memtier-style prefixes keep the 10-digit zero padding for lexicographic
+    // ordering of generated keys
+    let mut g = PlaceholderGenerator::try_new_with_prefix("GET {key uniform 1}", "p").unwrap();
+    assert_eq!(cmd_args(&g.gen_cmd())[1], "p0000000000");
+}
+
+#[test]
+fn default_prefix_is_still_key_underscore() {
+    // regression: no --key-prefix => identical output to before
+    let mut g = PlaceholderGenerator::try_new("GET {key sequence 1}").unwrap();
+    assert_eq!(cmd_args(&g.gen_cmd())[1], "key_0000000000");
+    // explicit empty prefix also falls back to the default (clap default is
+    // "key_", an explicitly passed "" would otherwise produce bare numbers)
+    let mut g = PlaceholderGenerator::try_new_with_prefix("GET {key sequence 1}", "").unwrap();
+    assert_eq!(cmd_args(&g.gen_cmd())[1], "key_0000000000");
+}
+
+#[test]
+fn key_prefix_with_whitespace_is_rejected() {
+    let err = PlaceholderGenerator::try_new_with_prefix("GET {key uniform 10}", "a b").unwrap_err();
+    assert!(err.contains("whitespace"), "err: {}", err);
+}
+
+#[test]
+fn key_prefix_does_not_touch_value_or_rand() {
+    let mut g = PlaceholderGenerator::try_new_with_prefix(
+        "SET {key uniform 10} {value 8} {rand 5}",
+        "xx:",
+    )
+    .unwrap();
+    let args = cmd_args(&g.gen_cmd());
+    assert!(args[1].starts_with("xx:"));
+    assert_eq!(args[2].len(), 8);
+    let r: u64 = args[3].parse().unwrap();
+    assert!(r < 5);
 }
 
 #[test]

@@ -105,6 +105,7 @@ cache-benchmark --lua-file -s 10 workloads/hello.lua
 | 选项 | 说明 | 默认值 |
 |---|---|---|
 | `-h` `-p` `-u` `-a` | 服务器地址 / 端口 / ACL 用户名 / 密码 | 127.0.0.1 / 6379 / "" / "" |
+| `--key-prefix` | `{key ...}` 占位符的 key 前缀（memtier 风格 `--key-prefix`；不可含空白；保留 10 位零填充，如 `user:profile:0001234567`） | `key_` |
 | `-c` | 连接数（0 = 自动扩连：QPS 增长不足 5% 时锁定） | 0 |
 | `--max-connections` | `-c 0` 自动扩连上限（每个 worker 的逻辑客户端数；集群模式每个客户端可连接多个 master） | 1024 |
 | `-n` / `-s` | 总请求数 / 持续秒数（0 = 不限） | 0 |
@@ -117,8 +118,27 @@ cache-benchmark --lua-file -s 10 workloads/hello.lua
 | `--lua` / `--lua-file` | 命令是 Lua 脚本 / Lua 脚本文件路径 | false |
 | `-q` | 静默模式 | false |
 | `--tls` | TLS 连接（`rediss://`） | false |
-| `--json` | 结束时输出单行 JSON 结果（供 ctl 消费） | false |
+| `--json` | 结束时输出单行 JSON 结果（供 ctl 消责） | false |
 | `--start-at <unix_ts>` | 等待到指定 unix 时间戳再开始（分布式同步启动，支持小数秒；ctl 自动按各机时钟偏移修正） | — |
+
+### 自定义 key 前缀（memtier 风格）
+
+`--key-prefix` 全局替换 `{key ...}` 占位符生成的 `key_` 前缀，读写压测和灌数据共用同一前缀即可闭环：
+
+```bash
+# 写入：生成 user:profile:0001234567 ... 带 TTL
+cache-benchmark --cluster -h 10.6.205.47 -p 16380 --key-prefix "user:profile:" \
+  -c 32 -P 64 -n 100000000 "SET {key sequence 100000000} {value 64} EX 14400"
+
+# 读取：同前缀 + 同范围，命中已写入的数据
+cache-benchmark --cluster -h 10.6.205.47 -p 16380 --key-prefix "user:profile:" \
+  -c 32 -P 256 -s 60 "GET {key uniform 100000000}"
+```
+
+- 前缀不可包含空白（生成的命令按空白拆参数，空格会把 key 撕成多个参数，程序会直接报错）
+- 数字部分保留 10 位零填充，便于字典序观察与 SCAN
+- 前缀含 `{tag}` 时按 Redis Cluster hashtag 规则聚合 slot，不受影响
+- Lua 模式（`--lua`）自行拼 key，不受该选项影响
 
 ## 分布式压测
 
@@ -214,7 +234,7 @@ CTL_HOSTS_FILE=hosts.toml cargo test -p cache-benchmark-tests --test integration
 
 MIT
 
-## 本地压力优化版 0.1.3-pressure.1
+## 集群压测优化说明（自 0.1.4 起）
 
 本版本优化集群按 master 批处理、命令生成和延迟统计；统计按工作线程分片，每批只更新一次计数，减少多核原子操作争用。默认核心范围使用与 CPU 绑定相同的可用核心列表长度，避免两套核心计数不一致。
 

@@ -148,9 +148,22 @@ pub fn run_benchmark(
 
 /// Build a command generator from a command string.
 pub fn make_generator(command: &str, use_lua: bool) -> Box<dyn command::CommandGenerator> {
+    make_generator_with_prefix(command, use_lua, command::placeholder::DEFAULT_KEY_PREFIX)
+}
+
+/// Like [`make_generator`] but overrides the `{key ...}` prefix (memtier-style
+/// `--key-prefix`). Only affects placeholder mode; Lua scripts build their own
+/// keys.
+pub fn make_generator_with_prefix(command: &str, use_lua: bool, key_prefix: &str) -> Box<dyn command::CommandGenerator> {
     if use_lua {
         Box::new(LuaGenerator::new(command))
     } else {
-        Box::new(PlaceholderGenerator::new(command))
+        match PlaceholderGenerator::try_new_with_prefix(command, key_prefix) {
+            Ok(g) => Box::new(g),
+            Err(e) => {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            }
+        }
     }
 }

@@ -72,3 +72,34 @@ fn lua_file_missing_reports_error() {
     assert_ne!(code, Some(0));
     assert!(err.to_lowercase().contains("failed to read") || err.to_lowercase().contains("no such"), "err: {}", err);
 }
+
+#[test]
+fn key_prefix_documented_in_help() {
+    let (code, out, _) = run_bin("cache-benchmark", &["--help"]);
+    assert_eq!(code, Some(0));
+    assert!(out.contains("--key-prefix"), "help must mention --key-prefix: {}", out);
+}
+
+#[test]
+fn key_prefix_with_whitespace_is_rejected() {
+    // a prefix containing a space would tear generated keys into multiple
+    // command arguments; must exit with an error mentioning whitespace
+    let (code, _, err) = run_bin(
+        "cache-benchmark",
+        &["--key-prefix", "a b", "-h", "127.0.0.1", "-p", "1", "-s", "1", "SET {key uniform 10} {value 8}"],
+    );
+    assert_ne!(code, Some(0), "whitespace prefix must be rejected");
+    assert!(err.contains("whitespace"), "err: {}", err);
+}
+
+#[test]
+fn key_prefix_accepted_and_reaches_generator() {
+    // dead port is fine: generator construction happens before connecting, so
+    // reaching the "Failed to connect" stage proves the prefix was accepted
+    let (code, _, err) = run_bin(
+        "cache-benchmark",
+        &["--key-prefix", "user:profile:", "-h", "127.0.0.1", "-p", "1", "-s", "1", "SET {key uniform 10} {value 8}"],
+    );
+    assert_ne!(code, Some(0));
+    assert!(err.contains("127.0.0.1:1"), "should fail at connect, not at arg parsing: {}", err);
+}

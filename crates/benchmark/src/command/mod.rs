@@ -5,7 +5,7 @@ mod lua;
 mod parser;
 pub mod placeholder;
 
-pub use placeholder::{PlaceholderEnum, PlaceholderGenerator, PlaceholderValue};
+pub use placeholder::{DEFAULT_KEY_PREFIX, PlaceholderEnum, PlaceholderGenerator, PlaceholderValue};
 pub use lua::LuaGenerator;
 
 pub trait CommandGenerator: Send + std::string::ToString {

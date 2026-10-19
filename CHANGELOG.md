@@ -7,6 +7,33 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-19
+
+### 新增
+
+- **集群模式按 master 分组的真 pipeline**（合并 PR #1，`cluster_pipeline.rs`）：
+  GET/SET/INCR 等常见单 key 命令按哈希槽映射到 master 后批量发送；MOVED/ASK
+  等重定向仅重试被服务端拒绝的命令，不重放已成功的写入。本地 3 主节点实测
+  QPS 提升约 2 倍，客户端 CPU 与内存大幅下降。
+- **`--max-connections`**：`-c 0` 自动扩连的逻辑客户端上限（默认 1024）；
+  自动扩连停止阈值从 30% 收紧到 5%。
+- **`--key-prefix` 自定义 key 前缀（memtier 风格）**：`{key ...}` 占位符生成的
+  key 前缀可配置（默认仍为 `key_`，向后兼容），支持 uniform/zipfian/sequence
+  全部分布；数字保留 10 位零填充；前缀含空白直接报错拒绝（避免把 key 撕成
+  多个命令参数）；前缀带 `{tag}` 时按 cluster hashtag 正确聚合 slot。
+  写压测/灌数据/读压测用同一前缀即可闭环验证（见 README 示例）。
+
+### 修复
+
+- `-t` 目标 QPS 按请求数扣减配额（原先按 pipeline 批次扣减，`-P > 1` 时实际
+  QPS 超标约 P 倍）；拒绝 `-P 0` 与超出限流器整数范围的 `-t`。
+- 统计口径统一：自动扩连预热阶段不计入 QPS/count/延迟直方图；`-n` 在预热
+  结束前耗尽时统计整段执行，不再误报 QPS 为 0。
+- 直方图按工作线程分片 + 每批一次记录，消除多核原子争用；计时检查改
+  `OnceLock`，去除热路径读锁。
+- 默认核心范围与 `core_affinity` 使用同一可用核心列表，避免两套探测方式
+  不一致导致越界。
+
 ### 变更
 
 - **cache-bench-ctl 默认内置 russh 传输**：`russh` feature 进入 default features，
@@ -125,7 +152,8 @@
 - 3 主 3 从集群 + 1 standalone 环境完成冒烟测试：拓扑发现、灌数据、读压测、Lua、JSON 输出全部通过
 - 三机分布式压测：同步启动，聚合 QPS 236,959，p99 7.4ms；各 master `total_commands_processed` 增量偏差 <5%
 
-[Unreleased]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.3...HEAD
+[Unreleased]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.4...HEAD
+[0.1.4]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.3...v0.1.4
 [0.1.3]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.2...v0.1.3
 [0.1.2]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.1...v0.1.2
 [0.1.1]: https://gitlab.gzky.com/dale.wang/cache-benchmark/compare/v0.1.0...v0.1.1

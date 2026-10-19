@@ -101,16 +101,23 @@ impl PlaceholderString {
 #[derive(Clone, Debug)]
 pub struct PlaceholderKey {
     distribution: DistributionEnum,
+    prefix: String,
 }
 
 impl PlaceholderKey {
     fn new(distribution: DistributionEnum) -> Self {
-        Self { distribution }
+        Self { distribution, prefix: DEFAULT_KEY_PREFIX.to_string() }
+    }
+    fn with_prefix(distribution: DistributionEnum, prefix: String) -> Self {
+        Self { distribution, prefix }
     }
     fn generate(&mut self) -> String {
-        format!("key_{:010}", self.distribution.sample(&mut rand::thread_rng()))
+        format!("{}{:010}", self.prefix, self.distribution.sample(&mut rand::thread_rng()))
     }
 }
+
+/// Default `{key ...}` prefix when `--key-prefix` is not given.
+pub const DEFAULT_KEY_PREFIX: &str = "key_";
 
 #[derive(Clone, Debug)]
 pub struct PlaceholderValue {
@@ -181,14 +188,34 @@ impl PlaceholderGenerator {
     }
     /// Testable variant: returns a Result.
     pub fn try_new(cmd: &str) -> Result<PlaceholderGenerator, String> {
+        Self::try_new_with_prefix(cmd, DEFAULT_KEY_PREFIX)
+    }
+    /// Like [`try_new`] but overrides the `{key ...}` prefix (memtier-style
+    /// `--key-prefix`). The prefix must not contain whitespace: generated
+    /// commands are split on whitespace, so a space would tear the key into
+    /// multiple arguments.
+    pub fn try_new_with_prefix(cmd: &str, key_prefix: &str) -> Result<PlaceholderGenerator, String> {
+        if key_prefix.chars().any(char::is_whitespace) {
+            return Err(format!("key prefix {:?} must not contain whitespace (it would split the generated key into multiple arguments)", key_prefix));
+        }
         match parser::parse_all(cmd) {
             Ok((nm, args)) => {
                 if !nm.is_empty() {
                     return Err(format!("trailing input: {:?}", nm));
                 }
+                let argv = args
+                    .into_iter()
+                    .map(|ph| match ph {
+                        PlaceholderEnum::Key(k) => {
+                            let prefix = if key_prefix.is_empty() { DEFAULT_KEY_PREFIX } else { key_prefix };
+                            PlaceholderEnum::Key(PlaceholderKey::with_prefix(k.distribution, prefix.to_string()))
+                        }
+                        other => other,
+                    })
+                    .collect();
                 Ok(PlaceholderGenerator {
                     str: cmd.to_string(),
-                    argv: args,
+                    argv,
                     lock: Arc::new(Mutex::new(())),
                 })
             }
