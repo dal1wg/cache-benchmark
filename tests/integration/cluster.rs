@@ -75,6 +75,7 @@ fn cluster_pipeline_no_crosslot_error() {
     let case = cache_benchmark::Case {
         command: cache_benchmark::make_generator("SET {key uniform 100000} {value 8}", false),
         connections: 8,
+        max_connections: 1024,
         count: 2000,
         target: 0,
         seconds: 0,
@@ -113,6 +114,7 @@ fn load_spreads_evenly_across_masters() {
     let case = cache_benchmark::Case {
         command: cache_benchmark::make_generator("SET {key uniform 100000} {value 8}", false),
         connections: 8,
+        max_connections: 1024,
         count: 6000,
         target: 0,
         seconds: 0,

@@ -5,6 +5,7 @@
 mod async_flag;
 pub mod auto_connection;
 mod bench;
+mod cluster_pipeline;
 pub mod client;
 pub mod command;
 pub mod shared_context;
@@ -67,6 +68,7 @@ pub fn parse_cores_checked(cores: &str) -> anyhow::Result<Vec<u16>> {
 pub struct Case {
     pub command: Box<dyn command::CommandGenerator>,
     pub connections: u64,
+    pub max_connections: u64,
     pub count: u64,
     pub target: u64,
     pub seconds: u64,
@@ -79,6 +81,7 @@ impl Clone for Case {
         Self {
             command: self.command.clone_box(),
             connections: self.connections,
+            max_connections: self.max_connections,
             count: self.count,
             target: self.target,
             seconds: self.seconds,

@@ -200,39 +200,31 @@ impl PlaceholderGenerator {
 impl CommandGenerator for PlaceholderGenerator {
     fn gen_cmd(&mut self) -> redis::Cmd {
         let mut cmd = redis::Cmd::new();
-        let mut cmd_str = String::new();
         for ph in self.argv.iter_mut() {
-            for arg in ph.generate() {
-                if !cmd_str.is_empty() && !cmd_str.ends_with(char::is_whitespace) {
-                    // separate multi-token placeholders ({range N W} yields two
-                    // numbers) and placeholder/literal boundaries with a space
-                    cmd_str.push(' ');
+            match ph {
+                PlaceholderEnum::String(literal) => {
+                    for word in literal.value.split_whitespace() {
+                        cmd.arg(word);
+                    }
                 }
-                cmd_str.push_str(&arg);
+                _ => {
+                    for arg in ph.generate() {
+                        for word in arg.split_whitespace() {
+                            cmd.arg(word);
+                        }
+                    }
+                }
             }
-        }
-        for word in cmd_str.split_whitespace() {
-            cmd.arg(word);
         }
         cmd
     }
 
     fn gen_cmd_with_lock(&mut self) -> redis::Cmd {
-        let _lock = self.lock.lock().unwrap();
-        let mut cmd = redis::Cmd::new();
-        let mut cmd_str = String::new();
-        for ph in self.argv.iter_mut() {
-            for arg in ph.generate() {
-                if !cmd_str.is_empty() && !cmd_str.ends_with(char::is_whitespace) {
-                    cmd_str.push(' ');
-                }
-                cmd_str.push_str(&arg);
-            }
-        }
-        for word in cmd_str.split_whitespace() {
-            cmd.arg(word);
-        }
-        cmd
+        // Clone the Arc so the mutex guard does not borrow self while the
+        // shared sequence generator is advanced.
+        let lock = self.lock.clone();
+        let _guard = lock.lock().unwrap();
+        self.gen_cmd()
     }
 
     fn clone_box(&self) -> Box<dyn CommandGenerator> {

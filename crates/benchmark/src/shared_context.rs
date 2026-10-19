@@ -2,7 +2,7 @@ use crate::async_flag::AsyncFlag;
 use cb_histogram::Histogram;
 use std::option::Option;
 use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 #[derive(Clone)]
@@ -13,7 +13,7 @@ pub struct SharedContext {
     max_count: u64,
 
     // limit by max_seconds
-    instant: Arc<RwLock<Option<Instant>>>,
+    instant: Arc<OnceLock<Instant>>,
     max_seconds: u64,
 
     // stop flag
@@ -32,7 +32,7 @@ impl SharedContext {
             is_loading,
             current_count: Arc::new(AtomicU64::new(0)),
             max_count,
-            instant: Arc::new(RwLock::new(None)),
+            instant: Arc::new(OnceLock::new()),
             max_seconds,
             stop_flag: AsyncFlag::new(),
 
@@ -51,8 +51,7 @@ impl SharedContext {
     }
 
     pub fn start_timer(&mut self) {
-        let mut instant = self.instant.write().unwrap();
-        *instant = Some(Instant::now());
+        let _ = self.instant.set(Instant::now());
     }
 
     pub fn set_cluster_nodes(&self, nodes: Vec<String>) {
@@ -90,11 +89,10 @@ impl SharedContext {
             }
         }
 
-        if self.max_seconds != 0 && self.instant.read().unwrap().is_some() {
-            let elapsed = self.instant.read().unwrap().unwrap().elapsed().as_secs();
-            if elapsed >= self.max_seconds {
-                return 0;
-            }
+        if self.max_seconds != 0
+            && self.instant.get().is_some_and(|start| start.elapsed().as_secs() >= self.max_seconds)
+        {
+            return 0;
         }
 
         if self.stop_flag.flag() {

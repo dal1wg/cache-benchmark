@@ -49,6 +49,7 @@ fn load_writes_verifiable_data() {
     let case = cache_benchmark::Case {
         command: cache_benchmark::make_generator(&script, true),
         connections: 2,
+        max_connections: 1024,
         count: 200,
         target: 0,
         seconds: 0,
@@ -87,6 +88,7 @@ fn sequence_keys_no_gaps() {
     let case = cache_benchmark::Case {
         command: cache_benchmark::make_generator("SET {key sequence 300} {value 8}", false),
         connections: 4,
+        max_connections: 1024,
         count: 300,
         target: 0,
         seconds: 0,
@@ -120,6 +122,7 @@ fn get_benchmark_count_matches() {
     let case = cache_benchmark::Case {
         command: cache_benchmark::make_generator("GET {key uniform 100000}", false),
         connections: 8,
+        max_connections: 1024,
         count: 5000,
         target: 0,
         seconds: 0,

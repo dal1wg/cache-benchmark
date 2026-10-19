@@ -43,9 +43,15 @@ impl Histogram {
     }
 
     pub fn record(&self, latency_us: u64) {
+        self.record_n(latency_us, 1);
+    }
+
+    /// All commands in a pipeline share its completion latency. Update the
+    /// counters once per batch instead of contending on them for every command.
+    pub fn record_n(&self, latency_us: u64, count: u64) {
         let index = Self::bucket_index(latency_us);
-        self.cnt.fetch_add(1, Ordering::Relaxed);
-        self.buckets[index].fetch_add(1, Ordering::Relaxed);
+        self.cnt.fetch_add(count, Ordering::Relaxed);
+        self.buckets[index].fetch_add(count, Ordering::Relaxed);
     }
 
     #[allow(dead_code)]
@@ -151,6 +157,11 @@ pub struct HistogramData {
 }
 
 impl HistogramData {
+    pub fn subtract(&mut self, baseline: &Self) {
+        for (count, before) in self.buckets.iter_mut().zip(&baseline.buckets) {
+            *count = count.saturating_sub(*before);
+        }
+    }
     pub fn from_histogram(h: &Histogram) -> Self {
         HistogramData {
             buckets: h.buckets.iter().map(|b| b.load(Ordering::Relaxed)).collect(),
@@ -261,5 +272,23 @@ mod tests {
         assert_eq!(a.percentile_us(0.99), 3_000);
         // avg should be 2ms
         assert_eq!(a.avg_us(), 2_000);
+    }
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+    #[test]
+    fn batch_recording_and_warmup_subtraction() {
+        let h = Histogram::new();
+        h.record_n(123, 64);
+        let baseline = HistogramData::from_histogram(&h);
+        h.record_n(567, 128);
+        let mut measured = HistogramData::from_histogram(&h);
+        measured.subtract(&baseline);
+        assert_eq!(h.cnt(), 192);
+        assert_eq!(measured.cnt(), 128);
+        assert_eq!(measured.avg_us(), 560);
+        assert_eq!(measured.percentile_us(0.99), 560);
     }
 }

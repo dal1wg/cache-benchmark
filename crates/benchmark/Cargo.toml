@@ -33,3 +33,4 @@ serde_json = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 anyhow = { workspace = true }
+crc16 = "0.4"
